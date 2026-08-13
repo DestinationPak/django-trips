@@ -313,7 +313,7 @@ class TripItineraryAdmin(admin.ModelAdmin):
 
 @admin.register(TripBooking)
 class TripBookingSummaryAdmin(admin.ModelAdmin):
-    list_display = ("number", "full_name", "schedule", "phone_number", "message")
+    list_display = ("number", "full_name", "schedule", "status", "phone_number", "message")
     list_select_related = ("schedule__trip",)
     search_fields = ["schedule__trip__name", "full_name", "number"]
     list_filter = ("status", "created", "terms_accepted")
