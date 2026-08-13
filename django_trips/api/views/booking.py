@@ -158,7 +158,9 @@ class TripBookingLookupView(generics.RetrieveAPIView):
                 }
             )
 
-        bookings = TripBooking.objects.filter(number=number)
+        bookings = TripBooking.objects.filter(number=number).prefetch_related(
+            "status_events"
+        )
         if otp:
             bookings = bookings.filter(otp=otp)
         else:

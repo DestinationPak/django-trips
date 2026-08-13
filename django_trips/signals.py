@@ -4,7 +4,7 @@ from django.db.models.signals import post_save, pre_save
 from django.dispatch import Signal, receiver
 
 from django_trips.choices import PackageTier
-from django_trips.models import Trip, TripPackage, TripStatusEvent
+from django_trips.models import BookingStatusEvent, Trip, TripBooking, TripPackage, TripStatusEvent
 
 #: Sent after a Trip's `status` field actually changes value on save
 #: (never on creation, since there's no prior status to transition from).
@@ -85,6 +85,68 @@ def log_trip_status_event(  # pylint:disable=unused-argument,too-many-arguments
     """Default handling for `trip_status_changed`: logs a TripStatusEvent."""
     TripStatusEvent.objects.create(
         trip=trip,
+        old_status=old_status,
+        new_status=new_status,
+        changed_by=changed_by,
+        reason=reason,
+    )
+
+
+#: Sent after a TripBooking's `status` field actually changes value on save
+#: (never on creation, since there's no prior status to transition from).
+#: Kwargs: `booking`, `old_status`, `new_status`, `changed_by`, `reason`.
+#: `changed_by`/`reason` come from `TripBooking.set_status()` (used by
+#: `cancel()` too); both are blank when the status was set directly
+#: (`booking.status = ...; booking.save()`) - that reads as a
+#: system/automatic change with no further context.
+#:
+#: Same override mechanism as `trip_status_changed` above - disconnect
+#: `log_booking_status_event` to replace the default DB logging, or just
+#: connect another receiver to add to it.
+booking_status_changed = Signal()
+
+
+@receiver(pre_save, sender=TripBooking)
+def _capture_previous_booking_status(sender, instance, **kwargs):  # pylint:disable=unused-argument
+    """Mirrors `_capture_previous_trip_status` for TripBooking."""
+    instance._previous_status = (  # pylint:disable=protected-access
+        sender.objects.filter(pk=instance.pk).values_list("status", flat=True).first()
+        if instance.pk
+        else None
+    )
+
+
+@receiver(post_save, sender=TripBooking)
+def _dispatch_booking_status_changed(sender, instance, created, **kwargs):  # pylint:disable=unused-argument
+    """Fires `booking_status_changed` once the new status is committed."""
+    previous_status = getattr(instance, "_previous_status", None)
+    # Consume the attribution set by set_status() (if any) so a later bare
+    # `booking.status = ...; booking.save()` on this same instance doesn't
+    # inherit it.
+    changed_by = instance._status_change_actor  # pylint:disable=protected-access
+    reason = instance._status_change_reason  # pylint:disable=protected-access
+    instance._status_change_actor = None  # pylint:disable=protected-access
+    instance._status_change_reason = ""  # pylint:disable=protected-access
+
+    if created or previous_status is None or previous_status == instance.status:
+        return
+    booking_status_changed.send(
+        sender=sender,
+        booking=instance,
+        old_status=previous_status,
+        new_status=instance.status,
+        changed_by=changed_by,
+        reason=reason,
+    )
+
+
+@receiver(booking_status_changed, sender=TripBooking)
+def log_booking_status_event(  # pylint:disable=unused-argument,too-many-arguments
+    sender, booking, old_status, new_status, *, changed_by=None, reason="", **kwargs
+):
+    """Default handling for `booking_status_changed`: logs a BookingStatusEvent."""
+    BookingStatusEvent.objects.create(
+        booking=booking,
         old_status=old_status,
         new_status=new_status,
         changed_by=changed_by,

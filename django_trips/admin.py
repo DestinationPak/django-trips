@@ -3,6 +3,7 @@ from django.contrib import admin
 
 from django_trips.choices import LocationType
 from django_trips.models import (
+    BookingStatusEvent,
     CancellationPolicy,
     Category,
     Facility,
@@ -333,6 +334,31 @@ class TripBookingSummaryAdmin(admin.ModelAdmin):
                 TripPickupLocation.objects.filter(schedule_id=obj.schedule_id)
             )
         return form
+
+
+@admin.register(BookingStatusEvent)
+class BookingStatusEventAdmin(admin.ModelAdmin):
+    """Read-only audit trail of TripBooking status transitions."""
+
+    list_display = (
+        "booking",
+        "old_status",
+        "new_status",
+        "changed_by",
+        "reason",
+        "created_at",
+    )
+    list_select_related = ("booking", "changed_by")
+    list_filter = ("old_status", "new_status")
+    search_fields = ("booking__number", "changed_by__username", "reason")
+    readonly_fields = (
+        "booking",
+        "old_status",
+        "new_status",
+        "changed_by",
+        "reason",
+        "created_at",
+    )
 
 
 @admin.register(TripWishlist)

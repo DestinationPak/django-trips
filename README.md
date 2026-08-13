@@ -77,6 +77,21 @@ trip_status_changed.disconnect(log_trip_status_event, sender=Trip)
 trip_status_changed.connect(notify_status_change, sender=Trip)
 ```
 
+## Booking status events
+
+`TripBooking` has the same arrangement: a status change on an existing booking records a
+`BookingStatusEvent` and fires `booking_status_changed` (kwargs `booking`, `old_status`,
+`new_status`, `changed_by`, `reason`), with `TripBooking.set_status()` and the same
+disconnect/connect override mechanism as above. `TripBooking.cancel(changed_by=..., reason=...)`
+goes through `set_status`, so cancellations land in the same history.
+
+The events are what backs a traveler-facing "booking activity" timeline —
+`TripBookingSerializer` exposes them as a read-only `status_events` list (including on the
+anonymous lookup endpoint), deliberately without `changed_by`: which staff member actioned a
+booking isn't the traveler's business. Note that no event is logged at creation, so a
+booking that has never moved off `PENDING` has an empty list; render the booking's own
+`created` timestamp for that first "booking placed" entry.
+
 ## Pricing model
 
 Price lives in two places, and they compose rather than compete:

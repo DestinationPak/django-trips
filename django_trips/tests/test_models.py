@@ -6,12 +6,14 @@ from django.utils import timezone
 
 from django_trips.choices import (
     AvailabilityType,
+    BookingStatus,
     LocationType,
     PackageTier,
     ScheduleStatus,
     TripStatus,
 )
 from django_trips.models import (
+    BookingStatusEvent,
     CancellationPolicy,
     Facility,
     Host,
@@ -31,7 +33,12 @@ from django_trips.models import (
     TripWishlist,
     TrustBadge,
 )
-from django_trips.signals import log_trip_status_event, trip_status_changed
+from django_trips.signals import (
+    booking_status_changed,
+    log_booking_status_event,
+    log_trip_status_event,
+    trip_status_changed,
+)
 from django_trips.tests.factories import (
     CategoryFactory,
     FacilityFactory,
@@ -480,6 +487,101 @@ class TripStatusEventTestCase(TestCase):
 
         self.assertEqual(TripStatusEvent.objects.filter(trip=self.trip).count(), 0)
         self.assertEqual(received, [(TripStatus.PUBLISHED, TripStatus.DRAFT)])
+
+
+class BookingStatusEventTestCase(TestCase):
+    """The `booking_status_changed` signal and its default DB-logging receiver."""
+
+    def setUp(self):
+        self.booking = TripBookingFactory()
+
+    def test_status_change_creates_event(self):
+        self.assertEqual(self.booking.status, BookingStatus.PENDING)
+
+        self.booking.status = BookingStatus.CONFIRMED
+        self.booking.save()
+
+        event = BookingStatusEvent.objects.get(booking=self.booking)
+        self.assertEqual(event.old_status, BookingStatus.PENDING)
+        self.assertEqual(event.new_status, BookingStatus.CONFIRMED)
+        self.assertIsNone(event.changed_by)
+        self.assertEqual(event.reason, "")
+
+    def test_set_status_attributes_the_event(self):
+        staff_user = UserFactory()
+
+        self.booking.set_status(
+            BookingStatus.CONFIRMED,
+            changed_by=staff_user,
+            reason="advance payment received",
+        )
+
+        event = BookingStatusEvent.objects.get(booking=self.booking)
+        self.assertEqual(event.changed_by, staff_user)
+        self.assertEqual(event.reason, "advance payment received")
+
+    def test_cancel_logs_an_event(self):
+        staff_user = UserFactory()
+
+        self.booking.cancel(changed_by=staff_user, reason="traveler request")
+
+        event = BookingStatusEvent.objects.get(booking=self.booking)
+        self.assertEqual(event.new_status, BookingStatus.CANCELLED)
+        self.assertEqual(event.changed_by, staff_user)
+        self.assertEqual(event.reason, "traveler request")
+        self.assertIsNotNone(self.booking.cancelled_at)
+
+    def test_attribution_does_not_leak_into_a_later_bare_save(self):
+        staff_user = UserFactory()
+        self.booking.set_status(
+            BookingStatus.CONFIRMED, changed_by=staff_user, reason="paid"
+        )
+
+        self.booking.status = BookingStatus.READY
+        self.booking.save()
+
+        second_event = BookingStatusEvent.objects.get(
+            booking=self.booking, new_status=BookingStatus.READY
+        )
+        self.assertIsNone(second_event.changed_by)
+        self.assertEqual(second_event.reason, "")
+
+    def test_no_event_on_creation(self):
+        self.assertEqual(
+            BookingStatusEvent.objects.filter(booking=self.booking).count(), 0
+        )
+
+    def test_no_event_when_status_unchanged(self):
+        self.booking.full_name = "Updated name"
+        self.booking.save()
+
+        self.assertEqual(
+            BookingStatusEvent.objects.filter(booking=self.booking).count(), 0
+        )
+
+    def test_consumer_can_override_default_logging(self):
+        booking_status_changed.disconnect(log_booking_status_event, sender=TripBooking)
+        self.addCleanup(
+            booking_status_changed.connect, log_booking_status_event, sender=TripBooking
+        )
+
+        received = []
+
+        def custom_receiver(sender, booking, old_status, new_status, **kwargs):  # pylint:disable=unused-argument
+            received.append((old_status, new_status))
+
+        booking_status_changed.connect(custom_receiver, sender=TripBooking, weak=False)
+        self.addCleanup(
+            booking_status_changed.disconnect, custom_receiver, sender=TripBooking
+        )
+
+        self.booking.status = BookingStatus.CONFIRMED
+        self.booking.save()
+
+        self.assertEqual(
+            BookingStatusEvent.objects.filter(booking=self.booking).count(), 0
+        )
+        self.assertEqual(received, [(BookingStatus.PENDING, BookingStatus.CONFIRMED)])
 
 
 class TripImageStrReprTestCase(TestCase):

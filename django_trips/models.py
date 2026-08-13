@@ -1195,11 +1195,29 @@ class TripBooking(TimeStampedModel):
             self.otp = self.generate_otp()
         super().save(**kwargs)
 
-    def cancel(self):
-        self.status = BookingStatus.CANCELLED
-        self.cancelled_at = timezone.now()
+    # Transient attribution for the in-flight status change, read by
+    # signals.py's post_save receiver - not model fields, so declared here
+    # (rather than in a migration) with the same defaults `set_status` uses.
+    _status_change_actor = None
+    _status_change_reason = ""
+
+    def set_status(self, status, changed_by=None, reason=""):
+        """
+        Updates `status` and attributes the resulting BookingStatusEvent to
+        whoever/whatever caused it - `changed_by=None` (the default) reads
+        as a system/automatic change rather than a specific staff action.
+        A bare `self.status = ...; self.save()` still logs an event, just
+        without that attribution.
+        """
+        self.status = status
+        self._status_change_actor = changed_by
+        self._status_change_reason = reason
         self.save()
         return self
+
+    def cancel(self, changed_by=None, reason=""):
+        self.cancelled_at = timezone.now()
+        return self.set_status(BookingStatus.CANCELLED, changed_by=changed_by, reason=reason)
 
     def can_be_cancelled(self):
         return BookingStatus.can_be_cancelled(self.status)
@@ -1225,6 +1243,47 @@ class TripBooking(TimeStampedModel):
         """A random 4-digit code, e.g. "0492". Not checked for uniqueness -
         it's only ever looked up together with `number`, which is unique."""
         return f"{random.randint(0, 9999):04d}"
+
+
+class BookingStatusEvent(models.Model):
+    """
+    Immutable log entry recording one TripBooking status transition.
+
+    Written by the `log_booking_status_event` receiver (signals.py) whenever
+    `booking_status_changed` fires - a consuming project that wants different
+    persistence (or none) can disconnect that receiver and/or connect its
+    own; see the docstring on that signal for the override mechanism.
+    """
+
+    booking = models.ForeignKey(
+        TripBooking, related_name="status_events", on_delete=models.CASCADE
+    )
+    old_status = models.CharField(max_length=20, choices=BookingStatus.choices)
+    new_status = models.CharField(max_length=20, choices=BookingStatus.choices)
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="booking_status_events",
+        help_text="Staff user who made this change; blank means system/automatic.",
+    )
+    reason = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Optional context for the change, e.g. 'advance payment received'.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"{self.booking}: {self.old_status} -> {self.new_status}"
+
+    def __repr__(self):
+        return f"<BookingStatusEvent {self.booking}, {self.old_status} -> {self.new_status}>"
 
 
 class TripWishlist(models.Model):

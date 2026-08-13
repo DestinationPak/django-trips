@@ -15,6 +15,7 @@ from taggit.serializers import TaggitSerializer, TagListSerializerField
 
 from django_trips.choices import LocationType, PackageTier, ScheduleStatus
 from django_trips.models import (
+    BookingStatusEvent,
     Category,
     Facility,
     Gear,
@@ -1002,7 +1003,23 @@ class TestimonialSerializer(serializers.ModelSerializer):
         return obj.location.name if obj.location else None
 
 
+class BookingStatusEventSerializer(serializers.ModelSerializer):
+    """One entry in a booking's status history, for a traveler-facing timeline."""
+
+    class Meta:
+        model = BookingStatusEvent
+        fields = ("old_status", "new_status", "reason", "created_at")
+        read_only_fields = fields
+
+
 class TripBookingSerializer(serializers.ModelSerializer):
+    status_events = BookingStatusEventSerializer(
+        many=True,
+        read_only=True,
+        help_text="Status transitions this booking has been through, oldest "
+        "last. `changed_by` is deliberately omitted - which staff member "
+        "actioned a booking isn't the traveler's business.",
+    )
     schedule = serializers.PrimaryKeyRelatedField(
         queryset=TripSchedule.objects.upcoming(),
         write_only=True,
@@ -1088,6 +1105,7 @@ class TripBookingSerializer(serializers.ModelSerializer):
             "number",
             "otp",
             "status",
+            "status_events",
             "full_name",
             "email",
             "phone_number",
@@ -1104,6 +1122,7 @@ class TripBookingSerializer(serializers.ModelSerializer):
             "number",
             "otp",
             "status",
+            "status_events",
             "total_price",
             "created",
             "created_by",

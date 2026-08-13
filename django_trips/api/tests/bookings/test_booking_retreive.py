@@ -60,6 +60,7 @@ class TripCreateBookingTestCase(AuthenticatedUserTestCase):
             {
                 "number": self.booking1.number,
                 "status": "PENDING",
+                "status_events": [],
                 "full_name": "Ali Raza",
                 "email": self.booking1.email,
                 "phone_number": "03001234567",

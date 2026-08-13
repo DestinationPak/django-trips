@@ -77,6 +77,7 @@ class TripBookingCreateTestCase(AuthenticatedUserTestCase):
                 "number": mock.ANY,
                 "otp": mock.ANY,
                 "status": BookingStatus.PENDING,
+                "status_events": [],
                 "full_name": "Foo Bar",
                 "email": "foo@bar.com",
                 "phone_number": "+923331234567",
