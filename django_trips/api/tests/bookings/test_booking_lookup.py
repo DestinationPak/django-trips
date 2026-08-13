@@ -4,6 +4,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from django_trips.choices import BookingStatus
 from django_trips.tests.factories import TripBookingFactory, TripFactory, TripScheduleFactory
 
 
@@ -66,6 +67,28 @@ class TripBookingLookupTestCase(TestCase):
             self.url, {"number": self.booking.number, "otp": "4242"}
         )
         self.assertNotIn("otp", response.json())
+
+    def test_lookup_returns_status_history(self):
+        self.booking.set_status(BookingStatus.CONFIRMED, reason="advance payment received")
+
+        response = self.client.get(
+            self.url, {"number": self.booking.number, "otp": "4242"}
+        )
+
+        events = response.json()["status_events"]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["old_status"], BookingStatus.PENDING)
+        self.assertEqual(events[0]["new_status"], BookingStatus.CONFIRMED)
+        self.assertEqual(events[0]["reason"], "advance payment received")
+
+    def test_lookup_status_history_hides_the_staff_actor(self):
+        self.booking.set_status(BookingStatus.CONFIRMED)
+
+        response = self.client.get(
+            self.url, {"number": self.booking.number, "otp": "4242"}
+        )
+
+        self.assertNotIn("changed_by", response.json()["status_events"][0])
 
     def test_lookup_requires_number_and_one_of_otp_or_email(self):
         response = self.client.get(self.url, {"number": self.booking.number})
