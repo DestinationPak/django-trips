@@ -65,7 +65,7 @@ setup(
     description="A Django Rest API for fetching and creating trips and their schedules.",
     long_description=README,
     long_description_content_type="text/markdown",
-    url="https://github.com/awaisdar001/django-trips",
+    url="https://github.com/DestinationPak/django-trips",
     author="Awais Jibran",
     author_email="awaisdar001@gmail.com",
     license="MIT",
