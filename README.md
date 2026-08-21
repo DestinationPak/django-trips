@@ -54,6 +54,40 @@ mount these views under a different namespace instead - e.g. re-exposing them un
 own project's URL scheme rather than including this app's urls.py directly - set
 `DJANGO_TRIPS_URL_NAMESPACE` in your settings to match.
 
+## Custom Location model
+
+`django_trips.Location` (a self-hierarchical `name`/`slug`/`lat`/`lon`/`type`/`parent` model,
+used by `Trip.departure`/`Trip.destination`/`Trip.locations`, `TripItinerary.location`,
+`TripReview.location`, `Testimonial.location`, and `TripPickupLocation.location`) is
+swappable, the same way Django's own `AUTH_USER_MODEL` is - if your project already has its
+own location/city model, you don't have to duplicate location data into a second table just
+to install this app.
+
+Two settings, both optional and both defaulting to this package's own bundled model:
+
+- **`DJANGO_TRIPS_LOCATION_MODEL`** - an `"app_label.ModelName"` string naming which model
+  actually satisfies the FK, e.g. `DJANGO_TRIPS_LOCATION_MODEL = "myapp.City"`. Your model
+  doesn't need to share `Location`'s field names.
+- **`DJANGO_TRIPS_LOCATION_ADAPTER`** - a dotted path to a `django_trips.location_adapter
+  .LocationAdapter` subclass telling this app how to read your model's fields as if they were
+  `Location`'s (`get_name`, `get_slug`, `get_lat`, `get_lon`, `get_type_display`, `get_region`,
+  `get_travel_tips`, `get_importance`, `get_poster`). Every place this app reads a location for
+  API output goes through `django_trips.location_adapter.get_location_adapter()`, never by
+  field name directly, so your adapter is the only place that needs to know your model's real
+  shape.
+
+**Set both before your project's first `migrate`.** Like `AUTH_USER_MODEL`, this is a
+swappable-model setting - Django resolves it once when the app loads, and a swap made after
+`Location`'s own table has already been created (and other tables have already foreign-keyed
+into it) doesn't retroactively move that data; it needs a real data migration instead of a
+config change.
+
+A few features are tied to `Location`'s own hierarchy shape (`type`/`parent`) rather than the
+adapter's field-level contract - the REGION-rollup search behavior (`expand_destination_slugs`
+in `api/filters.py`) and `ActiveDestinationsWithSchedulesView`/`DestinationWithSchedulesSerializer`'s
+region grouping. These assume the default, unswapped `Location` model and aren't guaranteed to
+work against an arbitrary swapped-in model that doesn't share that hierarchy concept.
+
 ## Trip status events
 
 Every time a `Trip`'s `status` actually changes value on save (editing an existing trip,

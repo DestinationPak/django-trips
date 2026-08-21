@@ -31,12 +31,12 @@ from django_trips.api.serializers import (
 )
 from django_trips.choices import LocationType, ScheduleStatus
 from django_trips.models import (
-    Location,
     Trip,
     TripPackage,
     TripReview,
     TripSchedule,
     TripWishlist,
+    get_location_model,
 )
 
 
@@ -277,8 +277,13 @@ class ActiveDestinationsWithSchedulesView(ListAPIView):
         # also technically a "parent") - otherwise every province would
         # inherit its regions'/cities' trips too and show up as a giant
         # catch-all pseudo-destination, which isn't what a province is for.
+        #
+        # This hierarchy rollup is django_trips' own Location concept
+        # (parent/type), not part of the adapter contract - it only works
+        # when DJANGO_TRIPS_LOCATION_MODEL is unswapped (the default model).
         return (
-            Location.objects.active()
+            get_location_model()
+            .objects.active()
             .filter(
                 Q(destination_trips__isnull=False)
                 | Q(type=LocationType.REGION, children__destination_trips__isnull=False)

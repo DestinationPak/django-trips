@@ -4,7 +4,7 @@ import django_filters as filters
 from django.db.models import Q
 
 from django_trips.choices import LocationType, ScheduleStatus
-from django_trips.models import Location, Trip, TripBooking, TripPackage, TripSchedule
+from django_trips.models import Trip, TripBooking, TripPackage, TripSchedule, get_location_model
 
 
 def expand_destination_slugs(slugs):
@@ -17,11 +17,15 @@ def expand_destination_slugs(slugs):
 
     Scoped to parent__type=REGION specifically - a CITY with children (e.g.
     Skardu with Shangrila) doesn't roll its children up; only a REGION does.
+
+    This is django_trips' own Location hierarchy concept (parent/type),
+    not part of the adapter contract - it only rolls up region children
+    when DJANGO_TRIPS_LOCATION_MODEL is unswapped (the default model).
     """
     return set(slugs) | set(
-        Location.objects.filter(
-            parent__slug__in=slugs, parent__type=LocationType.REGION
-        ).values_list("slug", flat=True)
+        get_location_model()
+        .objects.filter(parent__slug__in=slugs, parent__type=LocationType.REGION)
+        .values_list("slug", flat=True)
     )
 
 

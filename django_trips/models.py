@@ -1,11 +1,10 @@
 """Core data models for the app."""
 
 import random
+# pylint:disable=consider-using-from-import,missing-class-docstring,missing-function-docstring,no-member,no-name-in-module
+from datetime import UTC, datetime, timedelta
 
-# pylint:disable=consider-using-from-import,missing-class-docstring,missing-function-docstring,no-member
-from datetime import UTC, datetime
-from datetime import timedelta
-
+import swapper
 from config_models.models import ConfigurationModel
 from django.conf import settings
 from django.db import models, transaction
@@ -179,6 +178,7 @@ class Location(SlugMixin, models.Model):
     objects = managers.LocationQuerySet.as_manager()
 
     class Meta:
+        swappable = swapper.swappable_setting("django_trips", "Location")
         ordering = ["name"]
         verbose_name = "Trip Location"
         verbose_name_plural = "Trip Locations"
@@ -204,6 +204,11 @@ class Location(SlugMixin, models.Model):
         if self.type == LocationType.PROVINCE:
             return self.name
         return None
+
+
+def get_location_model():
+    """Location, or whichever model DJANGO_TRIPS_LOCATION_MODEL swaps it for."""
+    return swapper.load_model("django_trips", "Location")
 
 
 class Gear(SlugMixin, models.Model):
@@ -388,7 +393,7 @@ class Trip(SlugMixin, models.Model):
     )
 
     departure = models.ForeignKey(
-        Location,
+        swapper.get_model_name("django_trips", "Location"),
         null=True,
         blank=True,
         related_name="departure_trips",
@@ -396,7 +401,7 @@ class Trip(SlugMixin, models.Model):
         help_text="Starting point of the trip",
     )
     destination = models.ForeignKey(
-        Location,
+        swapper.get_model_name("django_trips", "Location"),
         null=True,
         blank=True,
         related_name="destination_trips",
@@ -404,7 +409,7 @@ class Trip(SlugMixin, models.Model):
         help_text="Primary destination of the trip",
     )
     locations = models.ManyToManyField(
-        Location,
+        swapper.get_model_name("django_trips", "Location"),
         related_name="trips",
         help_text="All locations visited during the trip",
     )
@@ -738,7 +743,11 @@ class TripItinerary(models.Model):
     title = models.CharField(max_length=150, null=True, blank=True)
     description = models.TextField(default="")
     location = models.ForeignKey(
-        Location, related_name="+", null=True, blank=True, on_delete=models.CASCADE
+        swapper.get_model_name("django_trips", "Location"),
+        related_name="+",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
     )
     category = models.ForeignKey(
         Category, related_name="+", null=True, blank=True, on_delete=models.CASCADE
@@ -934,7 +943,7 @@ class TripReview(models.Model):
     name = models.CharField(max_length=50)
     email = models.EmailField()
     location = models.ForeignKey(
-        Location,
+        swapper.get_model_name("django_trips", "Location"),
         null=True,
         blank=True,
         related_name="trip_reviews",
@@ -994,7 +1003,7 @@ class Testimonial(models.Model):
     quote = models.TextField()
     name = models.CharField(max_length=100)
     location = models.ForeignKey(
-        Location,
+        swapper.get_model_name("django_trips", "Location"),
         null=True,
         blank=True,
         related_name="testimonials",
@@ -1217,7 +1226,9 @@ class TripBooking(TimeStampedModel):
 
     def cancel(self, changed_by=None, reason=""):
         self.cancelled_at = timezone.now()
-        return self.set_status(BookingStatus.CANCELLED, changed_by=changed_by, reason=reason)
+        return self.set_status(
+            BookingStatus.CANCELLED, changed_by=changed_by, reason=reason
+        )
 
     def can_be_cancelled(self):
         return BookingStatus.can_be_cancelled(self.status)
@@ -1292,7 +1303,9 @@ class TripWishlist(models.Model):
     """
 
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, related_name="wishlisted_trips", on_delete=models.CASCADE
+        settings.AUTH_USER_MODEL,
+        related_name="wishlisted_trips",
+        on_delete=models.CASCADE,
     )
     trip = models.ForeignKey(
         Trip, related_name="wishlisted_by", on_delete=models.CASCADE
@@ -1316,7 +1329,9 @@ class TripPickupLocation(models.Model):
     schedule = models.ForeignKey(
         TripSchedule, related_name="pickup_locations", on_delete=models.CASCADE
     )
-    location = models.ForeignKey(Location, on_delete=models.CASCADE)
+    location = models.ForeignKey(
+        swapper.get_model_name("django_trips", "Location"), on_delete=models.CASCADE
+    )
     additional_price = models.SmallIntegerField(default=0)
 
     def __str__(self):

@@ -1,3 +1,4 @@
+import swapper
 from config_models.admin import ConfigurationModelAdmin
 from django.contrib import admin
 
@@ -73,7 +74,6 @@ class LocationChildInline(admin.TabularInline):
     verbose_name_plural = "Child locations"
 
 
-@admin.register(Location)
 class LocationAdmin(admin.ModelAdmin):
     """Location modal admin configuration"""
 
@@ -84,6 +84,14 @@ class LocationAdmin(admin.ModelAdmin):
     autocomplete_fields = ["parent"]
     prepopulated_fields = {"slug": ("name",)}
     inlines = [LocationChildInline]
+
+
+# Registering LocationAdmin against django_trips.Location only makes sense
+# while it's actually the active model - once DJANGO_TRIPS_LOCATION_MODEL is
+# swapped, this table/model isn't migrated at all, and the fields this admin
+# assumes (type/parent) belong to whatever model swapped it out instead.
+if not swapper.is_swapped("django_trips", "Location"):
+    admin.site.register(Location, LocationAdmin)
 
 
 # =============================================================================
