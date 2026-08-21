@@ -226,6 +226,22 @@ def get_active_locations_queryset():
     return manager.all()
 
 
+def location_model_supports_hierarchy():
+    """
+    Whether the active Location model has the parent/type fields the
+    REGION-rollup search/display features assume (expand_destination_slugs,
+    ActiveDestinationsWithSchedulesView, DestinationWithSchedulesSerializer
+    .get_schedules).
+
+    True for django_trips' own default Location; not guaranteed for a
+    swapped-in model - querying/select_related-ing a field a swapped-in
+    model doesn't have raises FieldError, so callers must check this
+    first rather than assume the hierarchy exists.
+    """
+    field_names = {f.name for f in get_location_model()._meta.get_fields()}
+    return {"parent", "type"}.issubset(field_names)
+
+
 class Gear(SlugMixin, models.Model):
     """
     Gear options for a trip.

@@ -4,7 +4,14 @@ import django_filters as filters
 from django.db.models import Q
 
 from django_trips.choices import LocationType, ScheduleStatus
-from django_trips.models import Trip, TripBooking, TripPackage, TripSchedule, get_location_model
+from django_trips.models import (
+    Trip,
+    TripBooking,
+    TripPackage,
+    TripSchedule,
+    get_location_model,
+    location_model_supports_hierarchy,
+)
 
 
 def expand_destination_slugs(slugs):
@@ -20,8 +27,11 @@ def expand_destination_slugs(slugs):
 
     This is django_trips' own Location hierarchy concept (parent/type),
     not part of the adapter contract - it only rolls up region children
-    when DJANGO_TRIPS_LOCATION_MODEL is unswapped (the default model).
+    when DJANGO_TRIPS_LOCATION_MODEL is unswapped (the default model);
+    a swapped-in model without parent/type just gets an exact-slug match.
     """
+    if not location_model_supports_hierarchy():
+        return set(slugs)
     return set(slugs) | set(
         get_location_model()
         .objects.filter(parent__slug__in=slugs, parent__type=LocationType.REGION)

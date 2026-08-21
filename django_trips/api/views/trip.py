@@ -36,7 +36,8 @@ from django_trips.models import (
     TripReview,
     TripSchedule,
     TripWishlist,
-    get_location_model,
+    get_active_locations_queryset,
+    location_model_supports_hierarchy,
 )
 
 
@@ -110,14 +111,16 @@ class TripViewSet(ReadOnlyModelViewSet):  # pylint:disable=too-many-ancestors
             # to select_related alongside the annotate()/distinct() above
             # since none of these add extra rows, unlike the M2M/reverse-FK
             # relations below.
-            queryset = queryset.select_related(
+            select_related_fields = [
                 "destination",
-                "destination__parent",
                 "host",
                 "host__type",
                 "host__ratings",
                 "review_summary",
-            )
+            ]
+            if location_model_supports_hierarchy():
+                select_related_fields.append("destination__parent")
+            queryset = queryset.select_related(*select_related_fields)
             # Backs TripListSerializer.schedules - prefetched once per page here
             # (to_attr caches it off each trip instance) rather than one query per
             # row inside the serializer.
@@ -281,10 +284,27 @@ class ActiveDestinationsWithSchedulesView(ListAPIView):
         # This hierarchy rollup is django_trips' own Location concept
         # (parent/type), not part of the adapter contract - it only works
         # when DJANGO_TRIPS_LOCATION_MODEL is unswapped (the default model).
+        # A swapped-in model isn't guaranteed to have parent/type at all
+        # (querying/annotating a field it doesn't have raises FieldError),
+        # so this falls back to a plain per-destination count with no
+        # region rollup rather than assuming that shape exists.
+        queryset = get_active_locations_queryset()
+        if not location_model_supports_hierarchy():
+            return (
+                queryset.filter(destination_trips__isnull=False)
+                .annotate(
+                    trips_count=Count(
+                        "destination_trips",
+                        filter=Q(destination_trips__is_active=True),
+                        distinct=True,
+                    )
+                )
+                .distinct()
+                .prefetch_related("destination_trips")
+                .order_by("-trips_count", "name")
+            )
         return (
-            get_location_model()
-            .objects.active()
-            .filter(
+            queryset.filter(
                 Q(destination_trips__isnull=False)
                 | Q(type=LocationType.REGION, children__destination_trips__isnull=False)
             )
