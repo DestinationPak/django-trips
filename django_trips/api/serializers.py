@@ -34,6 +34,7 @@ from django_trips.models import (
     TripSchedule,
     TrustBadge,
     get_active_locations_queryset,
+    location_model_supports_hierarchy,
 )
 from django_trips.services import get_effective_price
 from django_trips.utils import format_trip_duration, resolve_media_url
@@ -996,9 +997,11 @@ class DestinationWithSchedulesSerializer(serializers.Serializer):  # pylint:disa
         # so the schedules nested here must match - otherwise a region could
         # report e.g. trips_count=3 with an empty schedules list. Scoped to
         # type=REGION specifically, same as the view - a CITY with children
-        # (e.g. Skardu with Shangrila) doesn't roll its children up.
+        # (e.g. Skardu with Shangrila) doesn't roll its children up. A
+        # swapped-in model without parent/type has no rollup at all - see
+        # get_location_model()'s own module for the adapter-contract boundary.
         destination_q = Q(destination=obj)
-        if obj.type == LocationType.REGION:
+        if location_model_supports_hierarchy() and obj.type == LocationType.REGION:
             destination_q |= Q(destination__parent=obj)
         trips = Trip.objects.filter(destination_q)
         schedules = TripSchedule.objects.upcoming().filter(

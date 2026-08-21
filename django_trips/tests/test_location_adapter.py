@@ -13,6 +13,7 @@ from django_trips.models import (
     Location,
     get_active_locations_queryset,
     get_location_model,
+    location_model_supports_hierarchy,
 )
 from django_trips.tests.factories import LocationFactory
 
@@ -53,6 +54,20 @@ class LocationSwappableTestCase(TestCase):
             get_active_locations_queryset()
 
         swapped_model.objects.all.assert_called_once()
+
+    def test_location_model_supports_hierarchy_true_by_default(self):
+        self.assertTrue(location_model_supports_hierarchy())
+
+    def test_location_model_supports_hierarchy_false_without_parent_and_type(self):
+        id_field, name_field = MagicMock(), MagicMock()
+        id_field.name = "id"
+        name_field.name = "name"
+        swapped_model = MagicMock()
+        swapped_model._meta.get_fields.return_value = [id_field, name_field]
+        with patch(
+            "django_trips.models.get_location_model", return_value=swapped_model
+        ):
+            self.assertFalse(location_model_supports_hierarchy())
 
 
 class LocationAdapterTestCase(TestCase):
