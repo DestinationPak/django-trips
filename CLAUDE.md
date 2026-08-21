@@ -69,6 +69,19 @@ Everything hangs off `Trip` (`django_trips/models.py`). Key relationships:
 - `Trip` → `Location` (via `departure`, `destination` FKs and `locations` M2M) — `Location` is self-referential
   (`parent`) to form a region hierarchy (e.g. a TOWN's parent is a PROVINCE); `Location.region` derives the display
   region from that parent chain, not from a flat field.
+- `Location` is a swappable model (`swapper`, the generalized `AUTH_USER_MODEL` pattern - see README's "Custom
+  Location model") - every FK to it (`Trip.departure`/`destination`/`locations`, `TripItinerary.location`,
+  `TripReview.location`, `Testimonial.location`, `TripPickupLocation.location`) is declared via
+  `swapper.get_model_name("django_trips", "Location")`, not the bare class, and `get_location_model()`
+  (`models.py`) is how code reaches "whichever model is actually active" rather than importing `Location`
+  directly. Every place this app reads a location's fields for API output goes through
+  `django_trips.location_adapter.get_location_adapter()` (`LocationSerializer`, `DestinationWithSchedulesSerializer`,
+  `TripReviewSerializer`/`TestimonialSerializer`'s `get_location`) instead of reading field names off the model, so
+  an installer's own swapped-in model doesn't need matching field names - only a `DJANGO_TRIPS_LOCATION_ADAPTER`
+  override. The REGION-rollup hierarchy behavior (`expand_destination_slugs` in `api/filters.py`,
+  `ActiveDestinationsWithSchedulesView`'s queryset, `DestinationWithSchedulesSerializer.get_schedules`) is `Location`'s
+  own `parent`/`type` concept, not part of that adapter contract, and only works against the default, unswapped
+  model.
 - `Trip` → `Category`, `Facility`, `Gear` (M2M lookup-style models, all sharing `ActiveQuerySet`/`is_active`
   filtering via `managers.py`)
 - `Trip` → `TripAvailability` (a recurrence rule: DAILY/WEEKLY/MONTHLY/FIX_DATE + a price/seat window) →

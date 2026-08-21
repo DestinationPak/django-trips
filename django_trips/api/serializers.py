@@ -14,6 +14,7 @@ from rest_framework import serializers
 from taggit.serializers import TaggitSerializer, TagListSerializerField
 
 from django_trips.choices import LocationType, PackageTier, ScheduleStatus
+from django_trips.location_adapter import get_location_adapter
 from django_trips.models import (
     BookingStatusEvent,
     Category,
@@ -34,7 +35,7 @@ from django_trips.models import (
     TrustBadge,
 )
 from django_trips.services import get_effective_price
-from django_trips.utils import format_trip_duration
+from django_trips.utils import format_trip_duration, resolve_media_url
 
 if TYPE_CHECKING:
     from django.db.models.fields.files import FieldFile
@@ -79,35 +80,55 @@ class CategoryListSerializer(CategorySerializer):
         fields = CategorySerializer.Meta.fields + ("trips_count",)
 
 
-class LocationSerializer(serializers.ModelSerializer):
-    """Location Modal Serializer"""
+class LocationSerializer(serializers.Serializer):  # pylint:disable=abstract-method
+    """
+    Location Modal Serializer.
 
+    A plain Serializer, not a ModelSerializer - every field is read
+    through get_location_adapter() rather than by name off the model
+    directly, so this keeps working whether django_trips.Location or a
+    swapped-in model (DJANGO_TRIPS_LOCATION_MODEL) backs the FK.
+    """
+
+    name = serializers.SerializerMethodField()
+    slug = serializers.SerializerMethodField()
+    travel_tips = serializers.SerializerMethodField()
+    lat = serializers.SerializerMethodField()
+    lon = serializers.SerializerMethodField()
     type = serializers.SerializerMethodField()
-    region = serializers.ReadOnlyField()
+    region = serializers.SerializerMethodField()
+    importance = serializers.SerializerMethodField()
     poster = serializers.SerializerMethodField()
 
-    class Meta:
-        model = Location
-        fields = (
-            "name",
-            "slug",
-            "travel_tips",
-            "lat",
-            "lon",
-            "type",
-            "region",
-            "importance",
-            "poster",
-        )
+    def get_name(self, location):
+        return get_location_adapter().get_name(location)
+
+    def get_slug(self, location):
+        return get_location_adapter().get_slug(location)
+
+    def get_travel_tips(self, location):
+        return get_location_adapter().get_travel_tips(location)
+
+    def get_lat(self, location):
+        return get_location_adapter().get_lat(location)
+
+    def get_lon(self, location):
+        return get_location_adapter().get_lon(location)
 
     @extend_schema_field({"type": "string", "example": "TOWN"})
     def get_type(self, location):
         """Returns human readable model choice value."""
-        return location.get_type_display()
+        return get_location_adapter().get_type_display(location)
+
+    def get_region(self, location):
+        return get_location_adapter().get_region(location)
+
+    def get_importance(self, location):
+        return get_location_adapter().get_importance(location)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_poster(self, location: "Location") -> Optional[str]:
-        return get_location_poster(location, self.context)
+        return get_location_adapter().get_poster(location, self.context)
 
 
 class FacilitySerializer(serializers.ModelSerializer):
@@ -487,7 +508,9 @@ class TripReviewSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_location(self, review: "TripReview") -> Optional[str]:
-        return review.location.name if review.location else None
+        if not review.location:
+            return None
+        return get_location_adapter().get_name(review.location)
 
 
 def get_trip_review_summary_data(trip):
@@ -546,31 +569,6 @@ class TripImageSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_image(self, obj: "TripImage") -> Optional[str]:
         return resolve_media_url(obj.image_upload, obj.image, self.context)
-
-
-def resolve_media_url(
-    upload_file: Optional["FieldFile"], url: Optional[str], context: dict
-) -> Optional[str]:
-    """
-    Absolute URL for an "upload or external URL" media pair, or None if
-    neither is set.
-
-    `upload_file` (e.g. an ImageField) takes priority over `url` (a plain
-    URLField/string) when both are set. `upload_file.url` is relative to
-    MEDIA_URL, so it needs `request` from the serializer context to become
-    an absolute URL matching `url`'s shape.
-    """
-    if upload_file:
-        request = context.get("request")
-        file_url = upload_file.url
-        return request.build_absolute_uri(file_url) if request else file_url
-    return url or None
-
-
-def get_location_poster(location: "Location", context: dict) -> Optional[str]:
-    """Absolute URL of a location's poster photo, or None if neither
-    `poster_image` nor `poster_url` is set."""
-    return resolve_media_url(location.poster_image, location.poster_url, context)
 
 
 def get_trip_poster(trip: "Trip", context: dict) -> Optional[str]:
@@ -948,26 +946,47 @@ class UpcomingTripListSerializer(TripScheduleSerializer):
     the `/trips/upcoming/` endpoint's schema/call sites."""
 
 
-class DestinationWithSchedulesSerializer(serializers.ModelSerializer):
+class DestinationWithSchedulesSerializer(serializers.Serializer):  # pylint:disable=abstract-method
     """
+    A plain Serializer, not a ModelSerializer - name/slug/region/poster are
+    all read through get_location_adapter() rather than by name off the
+    model directly (see LocationSerializer), so this keeps working whether
+    django_trips.Location or a swapped-in model backs the FK.
+
     trips_count must come from an annotated queryset (see
     ActiveDestinationsWithSchedulesView) - it's used to rank destinations by
     popularity (e.g. a landing page's "top destinations") without a manual
     curation field.
+
+    get_schedules' REGION rollup is django_trips' own Location hierarchy
+    concept (parent/type) - it isn't part of the adapter contract, so it
+    still reads those fields directly and only makes sense for the default,
+    unswapped Location model.
     """
 
+    id = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField()
+    slug = serializers.SerializerMethodField()
+    region = serializers.SerializerMethodField()
     schedules = serializers.SerializerMethodField()
-    region = serializers.ReadOnlyField()
     trips_count = serializers.IntegerField(read_only=True, default=0)
     poster = serializers.SerializerMethodField()
 
-    class Meta:
-        model = Location
-        fields = ["id", "name", "slug", "region", "schedules", "trips_count", "poster"]
+    def get_id(self, obj: "Location"):
+        return obj.pk
+
+    def get_name(self, obj: "Location"):
+        return get_location_adapter().get_name(obj)
+
+    def get_slug(self, obj: "Location"):
+        return get_location_adapter().get_slug(obj)
+
+    def get_region(self, obj: "Location"):
+        return get_location_adapter().get_region(obj)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_poster(self, obj: "Location") -> Optional[str]:
-        return get_location_poster(obj, self.context)
+        return get_location_adapter().get_poster(obj, self.context)
 
     @extend_schema_field(UpcomingTripListSerializer(many=True))
     def get_schedules(self, obj: "Location"):
@@ -1000,7 +1019,9 @@ class TestimonialSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_location(self, obj: "Testimonial") -> Optional[str]:
-        return obj.location.name if obj.location else None
+        if not obj.location:
+            return None
+        return get_location_adapter().get_name(obj.location)
 
 
 class BookingStatusEventSerializer(serializers.ModelSerializer):
