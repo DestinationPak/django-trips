@@ -146,3 +146,13 @@ seed-relevant settings, update both `settings/common.py` and the README's "Gener
 `settings/common.py` is the real settings module (Docker sets `DJANGO_SETTINGS_MODULE=settings.common`);
 `settings/test.py` just re-exports it for pytest. `django-trips/wsgi.py`/`asgi.py`/`urls.py` are the minimal dev-only
 project shell and aren't part of the published package.
+
+## Testing conventions
+
+Tests are `django.test.TestCase` subclasses, not bare `@pytest.mark.django_db`-decorated functions -
+`django_hotels`/`django_rentals` and destipak's own per-vertical apps (`djangoapps/trip_hosts/`,
+`djangoapps/hotel_owners/`, `djangoapps/rental_operators/`) follow the same convention. Build fixtures
+via `django_trips/tests/factories.py` (`HostFactory`, `TripFactory`, etc.) rather than calling
+`Model.objects.create(...)` directly in a test - `django_hotels/tests/factories.py` and
+`django_rentals/tests/factories.py` mirror this module's shape one vertical over each. A raw
+`.objects.create()` is still fine for a test whose whole point is model/manager mechanics.
