@@ -88,6 +88,11 @@ in `api/filters.py`) and `ActiveDestinationsWithSchedulesView`/`DestinationWithS
 region grouping. These assume the default, unswapped `Location` model and aren't guaranteed to
 work against an arbitrary swapped-in model that doesn't share that hierarchy concept.
 
+For a worked example of a real swap: the DestinationPakistan platform (this package's own
+primary consumer, a private project) points this setting at its own `public.City` model via a
+`TripsCityLocationAdapter` in its `djangoapps/public/adapters.py` - the same shape sketched
+above, just concretely filled in.
+
 ## Trip status events
 
 Every time a `Trip`'s `status` actually changes value on save (editing an existing trip,
