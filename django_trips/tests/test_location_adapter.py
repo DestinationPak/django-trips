@@ -3,11 +3,17 @@ P9.2 regression coverage: Location's swappable-model wiring and the
 LocationAdapter contract callers read it through.
 """
 
+from unittest.mock import MagicMock, patch
+
 from django.test import TestCase, override_settings
 
 from django_trips.choices import LocationType
 from django_trips.location_adapter import LocationAdapter, get_location_adapter
-from django_trips.models import Location, get_location_model
+from django_trips.models import (
+    Location,
+    get_active_locations_queryset,
+    get_location_model,
+)
 from django_trips.tests.factories import LocationFactory
 
 
@@ -26,6 +32,27 @@ class LocationSwappableTestCase(TestCase):
 
     def test_get_location_model_returns_location_by_default(self):
         self.assertIs(get_location_model(), Location)
+
+    def test_get_active_locations_queryset_uses_active_when_available(self):
+        active = LocationFactory(is_active=True)
+        inactive = LocationFactory(is_active=False)
+
+        results = list(get_active_locations_queryset())
+
+        self.assertIn(active, results)
+        self.assertNotIn(inactive, results)
+
+    def test_get_active_locations_queryset_falls_back_without_active(self):
+        """A swapped-in model isn't guaranteed to define .active() - this
+        must degrade to .all() rather than raising."""
+        swapped_model = MagicMock()
+        swapped_model.objects = MagicMock(spec=["all"])
+        with patch(
+            "django_trips.models.get_location_model", return_value=swapped_model
+        ):
+            get_active_locations_queryset()
+
+        swapped_model.objects.all.assert_called_once()
 
 
 class LocationAdapterTestCase(TestCase):

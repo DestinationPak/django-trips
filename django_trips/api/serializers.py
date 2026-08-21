@@ -33,6 +33,7 @@ from django_trips.models import (
     TripReviewSummary,
     TripSchedule,
     TrustBadge,
+    get_active_locations_queryset,
 )
 from django_trips.services import get_effective_price
 from django_trips.utils import format_trip_duration, resolve_media_url
@@ -232,7 +233,7 @@ class HostListSerializer(serializers.ModelSerializer):
 class BaseTripItinerarySerializer(serializers.ModelSerializer):
     day = serializers.IntegerField(source="day_index")
     location = serializers.PrimaryKeyRelatedField(
-        queryset=Location.objects.active(), allow_null=True, required=False
+        queryset=get_active_locations_queryset(), allow_null=True, required=False
     )
     category = serializers.PrimaryKeyRelatedField(
         queryset=Category.objects.active(), allow_null=True, required=False
@@ -311,11 +312,11 @@ def upsert_trip_itinerary(trip, itinerary_data):
 
 class TripCreateSerializer(serializers.ModelSerializer):
     departure = serializers.PrimaryKeyRelatedField(
-        queryset=Location.objects.active(),
+        queryset=get_active_locations_queryset(),
         help_text="Primary location identifier where the trip starts.",
     )
     destination = serializers.PrimaryKeyRelatedField(
-        queryset=Location.objects.active(),
+        queryset=get_active_locations_queryset(),
         help_text="Main destination identifier of the trip.",
     )
     host = serializers.PrimaryKeyRelatedField(
@@ -332,7 +333,7 @@ class TripCreateSerializer(serializers.ModelSerializer):
     )
     locations = serializers.PrimaryKeyRelatedField(
         many=True,
-        queryset=Location.objects.active(),
+        queryset=get_active_locations_queryset(),
         help_text="All location identifiers covered during the trip.",
     )
     facilities = serializers.PrimaryKeyRelatedField(

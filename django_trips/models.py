@@ -211,6 +211,21 @@ def get_location_model():
     return swapper.load_model("django_trips", "Location")
 
 
+def get_active_locations_queryset():
+    """
+    The queryset of locations valid to assign on create/update.
+
+    `.active()` is django_trips.Location's own manager method
+    (is_active-based), not part of the LocationAdapter contract - a
+    swapped-in model isn't guaranteed to define it, so this falls back
+    to every row rather than assuming that filter exists elsewhere.
+    """
+    manager = get_location_model().objects
+    if hasattr(manager, "active"):
+        return manager.active()
+    return manager.all()
+
+
 class Gear(SlugMixin, models.Model):
     """
     Gear options for a trip.
