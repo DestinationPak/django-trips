@@ -23,10 +23,19 @@ make dev.up          # start web + mysql containers
 make shell           # attach a shell inside the web container (django-shell alias)
 make update_db        # run migrations
 make random_trips      # seed random trips (generate_trips --batch_size=100)
-make test            # docker compose run --rm web pytest
+make test            # docker compose run --rm --no-deps -e DJANGO_SETTINGS_MODULE=settings.test web pytest
 make stop / make destroy  # stop / tear down containers (destroy removes volumes too)
 make logs            # tail web container logs
 ```
+
+`make test` explicitly overrides `DJANGO_SETTINGS_MODULE` and skips the `database` dependency -
+`settings/test.py` swaps in an in-memory SQLite `DATABASES`, but `docker-compose.yml`'s `web`
+service sets `DJANGO_SETTINGS_MODULE=settings.common` as a container-wide environment variable,
+which pytest-django only ever uses as a fallback (`os.environ.setdefault`, never overriding an
+already-set var) - so without the explicit `-e` override, `pytest.ini`'s own
+`DJANGO_SETTINGS_MODULE = settings.test` is silently ignored and tests run against real MySQL
+instead, which also makes `--no-deps` (skip starting the `database` container) unsafe to combine
+with the plain `docker compose run --rm web pytest` form.
 
 Running a single test (inside the container, e.g. via `make shell`):
 
@@ -36,9 +45,10 @@ pytest django_trips/api/tests/test_trip_list.py::SomeTestCase::test_something
 pytest django_trips/management/tests/test_generate_trips.py
 ```
 
-Test settings use `settings.test` (`DJANGO_SETTINGS_MODULE=settings.test` per `pytest.ini`), which just imports
-`settings.common` with `--no-migrations` — tests build schema directly from models, so new migrations aren't
-required for tests to pick up model changes (but still create them for real deployments).
+Test settings use `settings.test` (`DJANGO_SETTINGS_MODULE=settings.test` per `pytest.ini`), which imports
+`settings.common` but swaps `DATABASES` to an in-memory SQLite backend - combined with `--no-migrations`,
+tests build schema directly from models against SQLite, so new migrations aren't required for tests to pick
+up model changes (but still create them for real deployments, which run against MySQL).
 
 Linting:
 
@@ -163,8 +173,9 @@ seed-relevant settings, update both `settings/common.py` and the README's "Gener
 ### Settings
 
 `settings/common.py` is the real settings module (Docker sets `DJANGO_SETTINGS_MODULE=settings.common`);
-`settings/test.py` just re-exports it for pytest. `django-trips/wsgi.py`/`asgi.py`/`urls.py` are the minimal dev-only
-project shell and aren't part of the published package.
+`settings/test.py` re-exports it for pytest but swaps `DATABASES` to an in-memory SQLite backend (see
+"Common commands" above for how `make test` forces this to actually take effect). `django-trips/wsgi.py`/
+`asgi.py`/`urls.py` are the minimal dev-only project shell and aren't part of the published package.
 
 ## Testing conventions
 
