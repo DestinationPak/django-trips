@@ -166,6 +166,12 @@ seed-relevant settings, update both `settings/common.py` and the README's "Gener
 `settings/test.py` just re-exports it for pytest. `django-trips/wsgi.py`/`asgi.py`/`urls.py` are the minimal dev-only
 project shell and aren't part of the published package.
 
+`DATABASES` reads `DATABASE_ENGINE`, defaulting to `django.db.backends.sqlite3` if unset - matching the
+pattern well-known reusable Django apps (django-oscar, wagtail) use, so a bare `manage.py runserver`
+outside Docker works with zero DB setup. `docker-compose.yml`'s `web` service explicitly sets
+`DATABASE_ENGINE=django.db.backends.mysql`, so the documented Docker devstack keeps using real MySQL
+as before - this only adds an escape hatch, it doesn't change `make dev.up`'s default behavior.
+
 ## Testing conventions
 
 Tests are `django.test.TestCase` subclasses, not bare `@pytest.mark.django_db`-decorated functions -
