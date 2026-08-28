@@ -17,6 +17,7 @@ services:
     restart: unless-stopped
     environment:
       DJANGO_SETTINGS_MODULE: settings.common
+      DATABASE_ENGINE: django.db.backends.mysql
     networks:
       - backend
     env_file:
