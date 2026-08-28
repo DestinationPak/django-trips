@@ -114,9 +114,15 @@ class HostRating(models.Model):
         return f"<HostRating: {self.rating_count} / {self.rated_by}"
 
 
-class Location(SlugMixin, models.Model):
+class AbstractLocation(SlugMixin, models.Model):
     """
-    Represents a geographical location for trip locations.
+    Base fields and behavior for a geographical trip location.
+
+    Inherit this to build a custom Location model instead of writing a
+    LocationAdapter subclass - you get these fields and methods for
+    free and only override what needs to change. See the README's
+    "Custom Location model" section for when to reach for this versus
+    the adapter.
     """
 
     name = models.CharField(max_length=30)
@@ -178,7 +184,7 @@ class Location(SlugMixin, models.Model):
     objects = managers.LocationQuerySet.as_manager()
 
     class Meta:
-        swappable = swapper.swappable_setting("django_trips", "Location")
+        abstract = True
         ordering = ["name"]
         verbose_name = "Trip Location"
         verbose_name_plural = "Trip Locations"
@@ -204,6 +210,13 @@ class Location(SlugMixin, models.Model):
         if self.type == LocationType.PROVINCE:
             return self.name
         return None
+
+
+class Location(AbstractLocation):
+    """This package's own default, concrete Location model."""
+
+    class Meta(AbstractLocation.Meta):
+        swappable = swapper.swappable_setting("django_trips", "Location")
 
 
 def get_location_model():
