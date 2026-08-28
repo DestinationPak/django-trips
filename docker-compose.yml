@@ -11,9 +11,6 @@ services:
       - .:/app
     ports:
       - "8000:8000"
-    depends_on:
-      database:
-        condition: service_healthy
     restart: unless-stopped
     environment:
       DJANGO_SETTINGS_MODULE: settings.common
@@ -28,6 +25,8 @@ services:
   database:
     container_name: trips.db
     image: mysql:8.4
+    profiles:
+      - mysql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     restart: unless-stopped
     environment:
