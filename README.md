@@ -82,6 +82,29 @@ swappable-model setting - Django resolves it once when the app loads, and a swap
 into it) doesn't retroactively move that data; it needs a real data migration instead of a
 config change.
 
+Building a brand-new Location model rather than reusing one you already have? Inherit
+`django_trips.models.AbstractLocation` instead of writing an adapter - it's a plain abstract
+Django model (the same shape `AbstractUser` is - real fields and concrete methods, not an
+interface class) already carrying `name`/`slug`/`lat`/`lon`/`type`/`parent`/`region`/
+`travel_tips`/`importance`/`poster_image`/`poster_url` and their read methods, so you get a
+working swap with no `DJANGO_TRIPS_LOCATION_ADAPTER` at all:
+
+```python
+# myapp/models.py
+from django_trips.models import AbstractLocation
+
+class MyLocation(AbstractLocation):
+    country_code = models.CharField(max_length=2, default="PK")
+```
+
+```python
+# settings.py
+DJANGO_TRIPS_LOCATION_MODEL = "myapp.MyLocation"
+```
+
+Reusing an existing model instead - one you can't restructure, or one shared with other
+libraries - stick with the adapter approach above; that's what it's for.
+
 A few features are tied to `Location`'s own hierarchy shape (`type`/`parent`) rather than the
 adapter's field-level contract - the REGION-rollup search behavior (`expand_destination_slugs`
 in `api/filters.py`) and `ActiveDestinationsWithSchedulesView`/`DestinationWithSchedulesSerializer`'s
