@@ -23,11 +23,15 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Installed here, not in requirements.txt, so it stays outside GitHub's
+# dependency graph/Dependabot scanning - it's dev-only either way.
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir 'mysqlclient>=2.2.1'
+
 # Install Python dependencies (kept above the project copy so this layer only
 # rebuilds when requirements change, not on every code change)
 COPY requirements.txt requirements-dev.txt ./
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
 
 # Copy project
 COPY . .
