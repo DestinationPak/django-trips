@@ -175,6 +175,11 @@ django.db.backends.mysql` is set in `.env` too - the profile alone isn't enough,
 together, on purpose. `mysqlclient` is installed via its own `RUN pip install` line in the `Dockerfile`
 rather than listed in `requirements.txt`, so it stays outside GitHub's dependency graph/Dependabot
 scanning entirely - it's dev-only either way, and only ever used when the MySQL opt-in above is active.
+`web` no longer has a `depends_on: database` health-gate (it would break the profile-less default
+case, since Compose can't depend on a profile-gated service that isn't active) - so on a fresh MySQL
+opt-in, `web`'s first `migrate` can race `database`'s startup and fail once; `restart: unless-stopped`
+retries it automatically and it recovers within a few seconds once MySQL is healthy. Not a bug, just
+the trade-off of making MySQL truly optional.
 
 ## Testing conventions
 
