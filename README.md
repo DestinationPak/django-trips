@@ -111,10 +111,19 @@ in `api/filters.py`) and `ActiveDestinationsWithSchedulesView`/`DestinationWithS
 region grouping. These assume the default, unswapped `Location` model and aren't guaranteed to
 work against an arbitrary swapped-in model that doesn't share that hierarchy concept.
 
+If your swapped-in model has an `is_active`-style flag, define an `active()` method on its
+default manager/queryset (matching `ActiveQuerySet.active()` on this package's own `Location`).
+`get_active_locations_queryset()` (`models.py`) - what every location-choice field in the API
+(`departure`/`destination`/`locations` on create/update) is scoped to - checks for that method by
+name and silently falls back to every row, active or not, when it's absent. Not part of the
+`LocationAdapter` contract, since a swapped-in model isn't guaranteed to have a concept of
+active/inactive at all - but if yours does, it's worth adding.
+
 For a worked example of a real swap: the DestinationPakistan platform (this package's own
-primary consumer, a private project) points this setting at its own `public.City` model via a
-`TripsCityLocationAdapter` in its `djangoapps/public/adapters.py` - the same shape sketched
-above, just concretely filled in.
+primary consumer, a private project) points this setting directly at its own `public.Location`
+model, with no adapter override at all - `public.Location`'s fields were deliberately shaped to
+match this package's own `Location` exactly, so the default `LocationAdapter` already reads it
+correctly. See `docs/location-model-swap-design.md` in that project for the full writeup.
 
 ## Trip status events
 
