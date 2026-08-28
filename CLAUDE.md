@@ -81,7 +81,13 @@ Everything hangs off `Trip` (`django_trips/models.py`). Key relationships:
   override. The REGION-rollup hierarchy behavior (`expand_destination_slugs` in `api/filters.py`,
   `ActiveDestinationsWithSchedulesView`'s queryset, `DestinationWithSchedulesSerializer.get_schedules`) is `Location`'s
   own `parent`/`type` concept, not part of that adapter contract, and only works against the default, unswapped
-  model.
+  model. `get_active_locations_queryset()` (used everywhere a location choice is offered on create/update)
+  checks for an `active()` method on the swapped-in model's manager and falls back to every row, active or
+  not, if it's absent - not part of the adapter contract either, for the same reason (a swapped-in model
+  isn't guaranteed to have an active/inactive concept at all). `AbstractLocation` (`models.py`) is a plain
+  abstract Django model - the same shape `AbstractUser` is, real fields and concrete methods, not an
+  interface class - an installer building a brand-new custom Location model can inherit directly instead of
+  writing a `LocationAdapter` subclass; see README's "Custom Location model" for when to reach for which.
 - `Trip` → `Category`, `Facility`, `Gear` (M2M lookup-style models, all sharing `ActiveQuerySet`/`is_active`
   filtering via `managers.py`)
 - `Trip` → `TripAvailability` (a recurrence rule: DAILY/WEEKLY/MONTHLY/FIX_DATE + a price/seat window) →
