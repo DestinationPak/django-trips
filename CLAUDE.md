@@ -178,12 +178,6 @@ seed-relevant settings, update both `settings/common.py` and the README's "Gener
 `asgi.py`/`urls.py` are the minimal dev-only project shell and aren't part of the published package.
 
 `DATABASES` reads `DATABASE_ENGINE`, defaulting to `django.db.backends.sqlite3` if unset - matching the
-pattern well-known reusable Django apps (django-oscar, wagtail) use, so a bare `manage.py runserver`
-outside Docker works with zero DB setup. `docker-compose.yml`'s `web` service explicitly sets
-`DATABASE_ENGINE=django.db.backends.mysql`, so the documented Docker devstack keeps using real MySQL
-as before - this only adds an escape hatch, it doesn't change `make dev.up`'s default behavior.
-
-`DATABASES` reads `DATABASE_ENGINE`, defaulting to `django.db.backends.sqlite3` if unset - matching the
 pattern well-known reusable Django apps (django-oscar, wagtail) use. `make dev.up` (`docker compose up`,
 no profile) now runs against SQLite by default, with no `database` container involved at all - that
 service carries `profiles: [mysql]` in `docker-compose.yml`, so it only starts when explicitly asked
