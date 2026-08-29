@@ -36,7 +36,7 @@ DJANGO_SETTINGS_MODULE=settings.test pytest
 
 ## Opening a PR
 
-- Target `master`.
+- Target `main`.
 - CI runs the test matrix (`Unit Tests`) and `Quality` (pylint) on every PR - both must
   pass before merge.
 
@@ -45,7 +45,7 @@ DJANGO_SETTINGS_MODULE=settings.test pytest
 Releases are entirely CI-driven; there is no local/manual publish path.
 
 1. Move the changes documented under `CHANGELOG.md`'s `[Unreleased]` section into a new
-   dated `## [X.Y.Z] - YYYY-MM-DD` section, and commit that to `master`.
+   dated `## [X.Y.Z] - YYYY-MM-DD` section, and commit that to `main`.
 2. Tag that commit with the plain version number (`git tag X.Y.Z`, matching
    [SemVer](https://semver.org/)) and push the tag: `git push origin X.Y.Z`.
 3. `.github/workflows/release.yaml` takes it from there: it verifies the tag is newer
