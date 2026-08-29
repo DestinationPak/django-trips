@@ -12,6 +12,8 @@ for that history.
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-08-29
+
 ### Changed
 - Migrated packaging from `setup.py`/`setup.cfg`/`MANIFEST.in` to a single
   `pyproject.toml` (PEP 621), and moved the importable app to `src/
