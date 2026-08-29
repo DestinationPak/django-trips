@@ -204,6 +204,19 @@ via `django_trips/tests/factories.py` (`HostFactory`, `TripFactory`, etc.) rathe
 
 ## Packaging
 
+**This package is published to PyPI - every change here ships to real installs, not just
+this repo's own Docker dev setup.** The known consumer today is destipak (via an editable
+VCS install - see its own `requirements/base.in`), but this package has 24+ real PyPI
+releases going back years, well before destipak existed - there may be other installs in
+the wild with no visibility into this repo at all. Treat every change as a public release,
+not a local edit. Before changing anything packaging-related (`pyproject.toml`, module
+layout, `__init__.py`, entry points, dependency ranges) or any public import path/behavior,
+check it against real installer protocols: does `pip install django-trips` still work, does
+an editable VCS install (`pip install -e git+https://...#egg=django-trips`) still resolve,
+does `python -m build` + `twine check` still pass. Verify with an actual install and a real
+build, not just the local test suite - a change that only works when edited in place inside
+this repo isn't finished.
+
 All metadata lives in `pyproject.toml` alone (no `setup.py`/`setup.cfg`/`MANIFEST.in`) -
 PEP 621 `[project]` table plus `[tool.setuptools]` for the `src/` layout and package
 discovery. Same shape as `django_hotels`/`django_rentals`; three things worth knowing:
