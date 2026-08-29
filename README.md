@@ -342,6 +342,15 @@ make test
 
 _* caution, this will remove all your data._
 
+## Documentation
+
+This README is also published as browsable docs (`docs/`, built with Sphinx). Build it
+locally with:
+```bash
+pip install -e ".[docs]"
+sphinx-build -b html docs docs/_build
+```
+
 ## How to Contribute
 
 Contributions are welcome! Whether it's bug fixes, new features, 
@@ -350,6 +359,10 @@ improving documentation, or sharing feedback — we'd love your help.
 Please fork the repository, make your changes in a feature branch, 
 and submit a pull request. For major changes, consider opening an issue
 first to discuss what you’d like to work on.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development/release workflow, and
+the [Code of Conduct](CODE_OF_CONDUCT.md). Found a security issue? See
+[SECURITY.md](SECURITY.md) rather than opening a public issue.
 
 ---
 
