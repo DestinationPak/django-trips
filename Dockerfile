@@ -23,17 +23,20 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Installed here, not in requirements.txt, so it stays outside GitHub's
+# Installed here, not as a project dependency, so it stays outside GitHub's
 # dependency graph/Dependabot scanning - it's dev-only either way.
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir 'mysqlclient>=2.2.1'
 
-# Install Python dependencies (kept above the project copy so this layer only
-# rebuilds when requirements change, not on every code change)
-COPY requirements.txt requirements-dev.txt ./
-RUN pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
-
 # Copy project
 COPY . .
+
+# setuptools-scm derives the package version from git tag history, which
+# this image's build context doesn't reliably carry - pretend a version
+# instead of failing the build. Runtime deps come from pyproject.toml's
+# own [project.dependencies]/[project.optional-dependencies], so there's
+# no separate requirements file to install first.
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0.dev0
+RUN pip install --no-cache-dir -e ".[dev]"
 
 EXPOSE 8000

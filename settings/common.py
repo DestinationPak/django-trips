@@ -51,7 +51,7 @@ MIDDLEWARE = [
     "crum.CurrentRequestUserMiddleware",
 ]
 
-ROOT_URLCONF = "django-trips.urls"
+ROOT_URLCONF = "devsite.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
@@ -68,7 +68,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "django-trips.wsgi.application"
+WSGI_APPLICATION = "devsite.wsgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/3.1/ref/settings/#databases

@@ -12,6 +12,8 @@ jobs:
     name: pylint-python
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Set up Python 3.13
       uses: actions/setup-python@v5
@@ -19,7 +21,7 @@ jobs:
         python-version: '3.13'
 
     - name: Install Dependencies
-      run: pip install -r requirements.txt -r requirements-dev.txt
+      run: pip install -e ".[dev]"
 
     - name: Show resolved versions
       run: |
@@ -29,4 +31,4 @@ jobs:
     - name: GitHub Action for pylint
       run: |
         export PYLINTRC=.pylintrc
-        python -m run_lint.py
+        python run_lint.py
