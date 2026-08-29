@@ -1,7 +1,7 @@
 import os
 import re
 
-from setuptools import setup
+from setuptools import find_packages, setup
 
 # pylint:disable=all
 README = open(
@@ -70,7 +70,15 @@ setup(
     author_email="awaisdar001@gmail.com",
     license="MIT",
     keywords="Django trips",
-    packages=["django_trips"],
+    packages=find_packages(
+        include=["django_trips", "django_trips.*"],
+        exclude=[
+            "django_trips.api.tests",
+            "django_trips.api.tests.*",
+            "django_trips.management.tests",
+            "django_trips.management.tests.*",
+        ],
+    ),
     install_requires=load_requirements("requirements.txt"),
     extras_require={"dev": load_requirements("requirements-dev.txt")},
     python_requires=">=3.11",
