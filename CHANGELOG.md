@@ -12,6 +12,14 @@ for that history.
 
 ## [Unreleased]
 
+### Changed
+- Raised the `djangorestframework` ceiling from `<3.17` to `<3.18`, so
+  consumers can pick up 3.17.2's fix for GHSA-2m8g-3cmr-wg3w (a bypass
+  of Django's `DATA_UPLOAD_MAX_MEMORY_SIZE` when parsing oversized
+  JSON/urlencoded bodies through DRF's `request.data`) and
+  GHSA-g47c-3xmw-q6m2 (`AdminRenderer` disclosing GET-protected data on
+  an invalid write request).
+
 ## [1.2.2] - 2026-08-29
 
 ### Changed
