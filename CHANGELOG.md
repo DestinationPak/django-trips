@@ -12,6 +12,17 @@ for that history.
 
 ## [Unreleased]
 
+### Changed
+- Dropped the `djangorestframework` ceiling entirely (`>=3.16,<3.17` to
+  `>=3.16`). The ceiling was blocking consumers from picking up 3.17.2's
+  fix for GHSA-2m8g-3cmr-wg3w (a bypass of Django's
+  `DATA_UPLOAD_MAX_MEMORY_SIZE` when parsing oversized JSON/urlencoded
+  bodies through DRF's `request.data`) and GHSA-g47c-3xmw-q6m2
+  (`AdminRenderer` disclosing GET-protected data on an invalid write
+  request), and DRF has no known-breaking major version to guard
+  against right now, so a floor is enough - consumers can resolve
+  whatever DRF version they actually want.
+
 ## [1.2.2] - 2026-08-29
 
 ### Changed
