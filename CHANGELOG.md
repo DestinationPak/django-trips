@@ -12,6 +12,18 @@ for that history.
 
 ## [Unreleased]
 
+### Added
+- `Trip.difficulty` - an optional choice field (`EASY`, `MODERATE`,
+  `CHALLENGING`) backed by a new `Difficulty` choices class in
+  `choices.py`. Blank means unrated.
+- `Trip.is_private` - a boolean marking a trip that runs for one
+  booking party only, never as a shared departure. Defaults to
+  `False`.
+- Both fields ship in migration `0016_trip_difficulty_is_private`, so
+  existing installs need to run `migrate` on upgrade, and both are
+  filterable in the trip admin changelist. Neither is exposed through
+  the API serializers or filters yet.
+
 ### Changed
 - Dropped the `djangorestframework` ceiling entirely (`>=3.16,<3.17` to
   `>=3.16`). The ceiling was blocking consumers from picking up 3.17.2's
