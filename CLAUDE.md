@@ -61,11 +61,11 @@ pep8speaks enforces max line length 120 on PR diffs only (`.pep8speaks.yml`); `.
 
 ## Git workflow
 
-`master` is the base branch for `django-trips`. Never commit or merge directly into `master` (or any shared
-branch) — always create a separate feature/fix branch off the **latest** `master` (checkout master, pull
-master, then branch off it), push that branch, and open a PR. If you are already on a separate branch whose
+`main` is the base branch for `django-trips`. Never commit or merge directly into `main` (or any shared
+branch) — always create a separate feature/fix branch off the **latest** `main` (checkout main, pull
+main, then branch off it), push that branch, and open a PR. If you are already on a separate branch whose
 PR hasn't merged yet, keep committing there. Once a branch's PR has merged, that branch is done — for the
-next piece of work, pull `master` again and cut a fresh branch off it rather than continuing to commit to
+next piece of work, pull `main` again and cut a fresh branch off it rather than continuing to commit to
 the merged branch. Carry forward any local commits that haven't landed anywhere yet with `git cherry-pick`
 onto the new branch, not by merging/rebasing the old branch's full history onto the new base.
 

@@ -7,6 +7,7 @@ from django.utils import timezone
 from django_trips.choices import (
     AvailabilityType,
     BookingStatus,
+    Difficulty,
     LocationType,
     PackageTier,
     ScheduleStatus,
@@ -1058,3 +1059,20 @@ class TripRefundScheduleTestCase(TestCase):
             trip.refund_schedule,
             [{"label": "Custom", "min_hours_before_departure": 24, "refund_percent": 25}],
         )
+
+
+class TripDifficultyAndPrivacyTestCase(TestCase):
+    def test_difficulty_defaults_to_blank(self):
+        trip = TripFactory()
+
+        self.assertEqual(trip.difficulty, "")
+
+    def test_difficulty_accepts_a_choice_value(self):
+        trip = TripFactory(difficulty=Difficulty.MODERATE)
+
+        self.assertEqual(trip.difficulty, "MODERATE")
+
+    def test_is_private_defaults_to_false(self):
+        trip = TripFactory()
+
+        self.assertFalse(trip.is_private)

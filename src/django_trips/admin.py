@@ -207,6 +207,8 @@ class TripAdmin(admin.ModelAdmin):
         "destination",
         "featured",
         "host",
+        "difficulty",
+        "is_private",
     )
     search_fields = ["name", "description", "slug", "locations__name"]
     prepopulated_fields = {"slug": ("name",)}

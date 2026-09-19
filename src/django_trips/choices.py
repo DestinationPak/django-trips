@@ -7,6 +7,12 @@ class PackageTier(models.TextChoices):
     PREMIUM = "PREMIUM", "Premium Package"
 
 
+class Difficulty(models.TextChoices):
+    EASY = "EASY", "Easy"
+    MODERATE = "MODERATE", "Moderate"
+    CHALLENGING = "CHALLENGING", "Challenging"
+
+
 class FeaturedType(models.TextChoices):
     BESTSELLER = "BESTSELLER", "Bestseller"
     POPULAR = "POPULAR", "Popular"
