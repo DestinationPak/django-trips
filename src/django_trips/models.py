@@ -20,6 +20,7 @@ import django_trips.managers as managers
 from django_trips.choices import (
     AvailabilityType,
     BookingStatus,
+    Difficulty,
     FeaturedType,
     LocationType,
     PackageTier,
@@ -434,6 +435,17 @@ class Trip(SlugMixin, models.Model):
         null=True,
         blank=True,
         help_text="Minimum age requirement (0 = no restriction)",
+    )
+    difficulty = models.CharField(
+        max_length=20,
+        choices=Difficulty.choices,
+        blank=True,
+        default="",
+        help_text="How physically demanding this trip is. Blank means unrated.",
+    )
+    is_private = models.BooleanField(
+        default=False,
+        help_text="This trip runs for one booking party only, never as a shared departure.",
     )
 
     departure = models.ForeignKey(
