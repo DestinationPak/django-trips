@@ -325,7 +325,7 @@ class TrustBadge(SlugMixin, models.Model):
     )
     is_active = models.BooleanField(default=True)
 
-    objects = managers.ActiveQuerySet.as_manager()
+    objects = managers.TripTaxonomyQuerySet.as_manager()
 
     class Meta:
         ordering = ["name"]
@@ -348,7 +348,7 @@ class Category(SlugMixin, models.Model):
     )
     is_active = models.BooleanField(default=True)
 
-    objects = managers.ActiveQuerySet.as_manager()
+    objects = managers.TripTaxonomyQuerySet.as_manager()
 
     class Meta:
         verbose_name_plural = "Categories"

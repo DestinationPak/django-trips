@@ -1,5 +1,5 @@
 # pylint:disable=import-error
-from django.db.models import Count, DecimalField, ExpressionWrapper, F, Min, Prefetch, Q
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema_view
@@ -29,14 +29,14 @@ from django_trips.api.serializers import (
     TripWishlistToggleSerializer,
     UpcomingTripListSerializer,
 )
-from django_trips.choices import LocationType, ScheduleStatus
+from django_trips.choices import ScheduleStatus
+from django_trips.locations import destinations_with_trip_counts
 from django_trips.models import (
     Trip,
     TripPackage,
     TripReview,
     TripSchedule,
     TripWishlist,
-    get_active_locations_queryset,
     location_model_supports_hierarchy,
 )
 
@@ -94,17 +94,7 @@ class TripViewSet(ReadOnlyModelViewSet):  # pylint:disable=too-many-ancestors
     def get_queryset(self):
         queryset = super().get_queryset()
         if self.action == "list":
-            # annotate() with an aggregate silently drops Trip.Meta's default
-            # ordering (Django stops applying it once GROUP BY is involved),
-            # so re-assert it explicitly here. Otherwise, with no ?ordering=
-            # param, row order is whatever MySQL's query plan happens to
-            # produce for that particular filter combination — same rows,
-            # different order, from one request to the next.
-            queryset = (
-                queryset.annotate(price=Min("packages__base_price"))
-                .distinct()
-                .order_by(*Trip._meta.ordering)
-            )  # pylint:disable=protected-access
+            queryset = queryset.with_price()
             # Single-valued relations TripListSerializer renders per row
             # (destination, its parent for Location.region, the review
             # summary, and the host -> host.type/host.ratings chain) - safe
@@ -242,23 +232,7 @@ class UpcomingTripsListAPIView(ListAPIView):
     queryset = TripSchedule.objects.upcoming()
 
     def get_queryset(self):
-        # A schedule's fully resolved price is its trip's cheapest package
-        # base_price plus this specific date's surcharge - packages aren't
-        # date-bound, so this is the same "cheapest tier" a traveler would
-        # see if they picked this date, not an arbitrary reference price.
-        return (
-            super()
-            .get_queryset()
-            .annotate(
-                trip_min_base_price=Min("trip__packages__base_price"),
-            )
-            .annotate(
-                price=ExpressionWrapper(
-                    F("trip_min_base_price") + F("additional_price"),
-                    output_field=DecimalField(),
-                )
-            )
-        )
+        return super().get_queryset().with_price()
 
 
 @extend_schema_view(get=destinations_list_schema)
@@ -269,61 +243,7 @@ class ActiveDestinationsWithSchedulesView(ListAPIView):
     serializer_class = DestinationWithSchedulesSerializer
 
     def get_queryset(self):
-        # A REGION-type location (e.g. "Galiyat") may have no trips of its
-        # own - trips are booked to its child towns (e.g. "Nathia Gali").
-        # It still needs to appear here (with a rolled-up trips_count) since
-        # travelers search for the region name, not each child town - see
-        # expand_destination_slugs() in api/filters.py for the matching
-        # search-side behavior.
-        #
-        # Scoped to type=REGION specifically (not e.g. a PROVINCE, which is
-        # also technically a "parent") - otherwise every province would
-        # inherit its regions'/cities' trips too and show up as a giant
-        # catch-all pseudo-destination, which isn't what a province is for.
-        #
-        # This hierarchy rollup is django_trips' own Location concept
-        # (parent/type), not part of the adapter contract - it only works
-        # when DJANGO_TRIPS_LOCATION_MODEL is unswapped (the default model).
-        # A swapped-in model isn't guaranteed to have parent/type at all
-        # (querying/annotating a field it doesn't have raises FieldError),
-        # so this falls back to a plain per-destination count with no
-        # region rollup rather than assuming that shape exists.
-        queryset = get_active_locations_queryset()
-        if not location_model_supports_hierarchy():
-            return (
-                queryset.filter(destination_trips__isnull=False)
-                .annotate(
-                    trips_count=Count(
-                        "destination_trips",
-                        filter=Q(destination_trips__is_active=True),
-                        distinct=True,
-                    )
-                )
-                .distinct()
-                .prefetch_related("destination_trips")
-                .order_by("-trips_count", "name")
-            )
-        return (
-            queryset.filter(
-                Q(destination_trips__isnull=False)
-                | Q(type=LocationType.REGION, children__destination_trips__isnull=False)
-            )
-            .annotate(
-                trips_count=Count(
-                    "destination_trips",
-                    filter=Q(destination_trips__is_active=True),
-                    distinct=True,
-                )
-                + Count(
-                    "children__destination_trips",
-                    filter=Q(
-                        children__destination_trips__is_active=True,
-                        type=LocationType.REGION,
-                    ),
-                    distinct=True,
-                )
-            )
-            .distinct()
-            .prefetch_related("destination_trips", "children__destination_trips")
-            .order_by("-trips_count", "name")
-        )
+        prefetch = ["destination_trips"]
+        if location_model_supports_hierarchy():
+            prefetch.append("children__destination_trips")
+        return destinations_with_trip_counts().prefetch_related(*prefetch)

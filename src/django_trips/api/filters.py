@@ -3,40 +3,14 @@ from datetime import timedelta
 import django_filters as filters
 from django.db.models import Q
 
-from django_trips.choices import LocationType, ScheduleStatus
+from django_trips.choices import ScheduleStatus
+from django_trips.locations import expand_destination_slugs
 from django_trips.models import (
     Trip,
     TripBooking,
     TripPackage,
     TripSchedule,
-    get_location_model,
-    location_model_supports_hierarchy,
 )
-
-
-def expand_destination_slugs(slugs):
-    """
-    A REGION-type destination (e.g. 'galiyat') has no trips of its own -
-    trips are booked to its child towns (e.g. 'nathia-gali'). Searching by
-    the region name is how travelers actually search (see Location.parent/
-    Location.region), so filtering by a region's slug must also match trips
-    destined for any of its children, not just an exact slug match.
-
-    Scoped to parent__type=REGION specifically - a CITY with children (e.g.
-    Skardu with Shangrila) doesn't roll its children up; only a REGION does.
-
-    This is django_trips' own Location hierarchy concept (parent/type),
-    not part of the adapter contract - it only rolls up region children
-    when DJANGO_TRIPS_LOCATION_MODEL is unswapped (the default model);
-    a swapped-in model without parent/type just gets an exact-slug match.
-    """
-    if not location_model_supports_hierarchy():
-        return set(slugs)
-    return set(slugs) | set(
-        get_location_model()
-        .objects.filter(parent__slug__in=slugs, parent__type=LocationType.REGION)
-        .values_list("slug", flat=True)
-    )
 
 
 class TimedeltaFromDaysFilter(filters.NumberFilter):
