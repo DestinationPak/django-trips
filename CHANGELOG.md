@@ -13,6 +13,19 @@ for that history.
 ## [Unreleased]
 
 ### Added
+- `django_trips.services` now holds the booking and trip rules that used to
+  live only inside the API serializers: `create_trip_booking()` (selection
+  checks, seat check under a row lock on the schedule, pricing,
+  `booked_seats` update), `validate_trip_booking()`, `create_trip()`,
+  `update_trip()` and `upsert_trip_itinerary()`. A rule failure raises
+  Django's `ValidationError` keyed by field. The API serializers call these,
+  so API behaviour is unchanged.
+- Queryset methods: `Trip.objects.with_price()`,
+  `TripSchedule.objects.with_price()`, and `with_trip_counts()` on
+  categories, trust badges and hosts.
+- `django_trips.locations` with `expand_destination_slugs()` (moved from
+  `api/filters.py`, still importable there) and
+  `destinations_with_trip_counts()`.
 - `Trip.difficulty` - an optional choice field (`EASY`, `MODERATE`,
   `CHALLENGING`) backed by a new `Difficulty` choices class in
   `choices.py`. Blank means unrated.
@@ -23,6 +36,12 @@ for that history.
   existing installs need to run `migrate` on upgrade, and both are
   filterable in the trip admin changelist. Neither is exposed through
   the API serializers or filters yet.
+
+### Deprecated
+- `django_trips.api` (views, serializers, filters, pagination, schema) and
+  `django_trips.urls`. Importing `django_trips.api` now emits a
+  `DeprecationWarning`. Both are removed in 2.0.0, which ships the domain
+  only; build your own API on `django_trips.services` and the querysets.
 
 ### Changed
 - Dropped the `djangorestframework` ceiling entirely (`>=3.16,<3.17` to
