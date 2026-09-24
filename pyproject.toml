@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "django-trips"
 dynamic = ["version"]
-description = "A Django Rest API for fetching and creating trips and their schedules."
+description = "A Django app for trips, schedules and bookings: models, business rules and admin."
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Awais Jibran", email = "awaisdar001@gmail.com" }]

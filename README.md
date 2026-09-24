@@ -1,6 +1,8 @@
-# Django Trips API
+# Django Trips
 
-This is a Django REST API for managing and retrieving trips, schedules, bookings, and related travel data.
+A Django app for trips, schedules, bookings, and related travel data: models, querysets,
+business rules and admin. It also ships a DRF API, deprecated since 1.3.0 and removed in 2.0.0
+(see "Business rules" below).
 
 This service is a core component of the [DestinationPak](https://destinationpak.com) project — a platform designed 
 to make exploring and booking adventures across Pakistan easier and more accessible.
@@ -131,9 +133,9 @@ Reusing an existing model instead - one you can't restructure, or one shared wit
 libraries - stick with the adapter approach above; that's what it's for.
 
 A few features are tied to `Location`'s own hierarchy shape (`type`/`parent`) rather than the
-adapter's field-level contract - the REGION-rollup search behavior (`expand_destination_slugs`
-in `api/filters.py`) and `ActiveDestinationsWithSchedulesView`/`DestinationWithSchedulesSerializer`'s
-region grouping. These assume the default, unswapped `Location` model and aren't guaranteed to
+adapter's field-level contract - the REGION-rollup behavior in `django_trips.locations`
+(`expand_destination_slugs`, `destinations_with_trip_counts`) and
+`DestinationWithSchedulesSerializer`'s region grouping. These assume the default, unswapped `Location` model and aren't guaranteed to
 work against an arbitrary swapped-in model that doesn't share that hierarchy concept.
 
 If your swapped-in model has an `is_active`-style flag, define an `active()` method on its
