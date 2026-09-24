@@ -29,7 +29,7 @@ class TripReviewListView(ListAPIView):
 
     def get_queryset(self):
         return (
-            TripReview.objects.filter(trip_id=self.kwargs["trip_id"], is_verified=True)
+            TripReview.objects.verified().filter(trip_id=self.kwargs["trip_id"])
             .select_related("location")
             .order_by("-created_at")
         )

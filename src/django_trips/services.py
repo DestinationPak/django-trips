@@ -10,6 +10,7 @@ from django_trips.models import (
     TripItinerary,
     TripPackage,
     TripSchedule,
+    TripWishlist,
 )
 
 TERMS_NOT_ACCEPTED = (
@@ -235,3 +236,11 @@ def update_trip(trip, *, itinerary=None, categories=None, **fields):
         if itinerary_categories:
             trip.categories.add(*itinerary_categories)
     return trip
+
+
+def toggle_trip_wishlist(user, trip):
+    """Add `trip` to `user`'s wishlist, or remove it if already there; return whether it is now wished."""
+    entry, created = TripWishlist.objects.get_or_create(user=user, trip=trip)
+    if not created:
+        entry.delete()
+    return created

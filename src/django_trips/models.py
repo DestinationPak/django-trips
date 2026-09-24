@@ -1012,6 +1012,8 @@ class TripReview(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = managers.TripReviewQuerySet.as_manager()
+
     def __str__(self):
         return f"{self.name}-{self.overall}"
 

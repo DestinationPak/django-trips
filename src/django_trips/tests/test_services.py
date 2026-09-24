@@ -11,6 +11,7 @@ from django_trips.services import (
     create_trip,
     create_trip_booking,
     get_effective_price,
+    toggle_trip_wishlist,
     update_trip,
     validate_trip_booking,
 )
@@ -271,3 +272,20 @@ class UpdateTripTestCase(TestCase):
 
         titles = dict(self.trip.itinerary_days.values_list("day_index", "title"))
         self.assertEqual(titles, {1: "New day one", 2: "Day two"})
+
+
+class ToggleTripWishlistTestCase(TestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = UserFactory()
+        self.trip = TripFactory(trip_schedule=None)
+
+    def test_adds_a_trip_that_is_not_wished(self):
+        self.assertTrue(toggle_trip_wishlist(self.user, self.trip))
+        self.assertTrue(self.trip.wishlisted_by.filter(user=self.user).exists())
+
+    def test_removes_a_trip_that_is_already_wished(self):
+        toggle_trip_wishlist(self.user, self.trip)
+
+        self.assertFalse(toggle_trip_wishlist(self.user, self.trip))
+        self.assertFalse(self.trip.wishlisted_by.filter(user=self.user).exists())

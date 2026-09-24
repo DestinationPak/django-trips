@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Optional
 import crum
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django_countries.serializer_fields import CountryField
 from drf_spectacular.types import OpenApiTypes
@@ -13,8 +12,8 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from taggit.serializers import TaggitSerializer, TagListSerializerField
 
-from django_trips.choices import LocationType, ScheduleStatus
 from django_trips.location_adapter import get_location_adapter
+from django_trips.locations import trips_booked_to
 from django_trips.models import (
     BookingStatusEvent,
     Category,
@@ -34,7 +33,6 @@ from django_trips.models import (
     TripSchedule,
     TrustBadge,
     get_active_locations_queryset,
-    location_model_supports_hierarchy,
 )
 from django_trips import services
 from django_trips.services import upsert_trip_itinerary  # pylint:disable=unused-import
@@ -441,7 +439,7 @@ def get_trip_review_summary_data(trip):
         # rather than re-querying with .count().
         data["reviews_count"] = len(verified_reviews)
     else:
-        data["reviews_count"] = trip.reviews.filter(is_verified=True).count()
+        data["reviews_count"] = trip.reviews.verified().count()
     return data
 
 
@@ -522,11 +520,7 @@ def get_upcoming_published_schedules(trip: "Trip"):
     every schedule row that happens to exist (draft/past/cancelled ones are
     irrelevant to an availability picker).
     """
-    return (
-        trip.schedules.upcoming()
-        .filter(status=ScheduleStatus.PUBLISHED)
-        .order_by("start_date")
-    )
+    return trip.schedules.bookable()
 
 
 class TripListSerializer(serializers.ModelSerializer):
@@ -886,10 +880,7 @@ class DestinationWithSchedulesSerializer(serializers.Serializer):  # pylint:disa
         # (e.g. Skardu with Shangrila) doesn't roll its children up. A
         # swapped-in model without parent/type has no rollup at all - see
         # get_location_model()'s own module for the adapter-contract boundary.
-        destination_q = Q(destination=obj)
-        if location_model_supports_hierarchy() and obj.type == LocationType.REGION:
-            destination_q |= Q(destination__parent=obj)
-        trips = Trip.objects.filter(destination_q)
+        trips = trips_booked_to(obj)
         schedules = TripSchedule.objects.upcoming().filter(
             id__in=trips.values_list("schedules", flat=True)
         )
