@@ -145,8 +145,11 @@ or view, so any caller gets the same behavior without going through DRF:
   on save).
 - Read-side: `Trip.objects.with_price()` / `TripSchedule.objects.with_price()` (the annotation must be named
   `price` for `?ordering=price`, and can't be `starting_price`, a setter-less model property), and
-  `with_trip_counts()` on categories, trust badges and hosts. Location queries are functions in `locations.py`,
-  not manager methods, because `Location` is swappable.
+  `with_trip_counts()` on categories, trust badges and hosts, `TripSchedule.objects.bookable()` (upcoming +
+  published), `TripReview.objects.verified()`, and `TripBooking.objects.matching_guest()` (the guest lookup, never
+  on `number` alone). `services.toggle_trip_wishlist()` owns the wishlist toggle. Location queries
+  (`expand_destination_slugs`, `destinations_with_trip_counts`, `trips_booked_to`) are functions in
+  `locations.py`, not manager methods, because `Location` is swappable.
 - Tests run on SQLite, which ignores `select_for_update()`, so the lock is tested by asserting it is requested.
 
 ### API layer (deprecated, removed in 2.0.0)
