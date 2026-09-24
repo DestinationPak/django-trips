@@ -158,14 +158,10 @@ class TripBookingLookupView(generics.RetrieveAPIView):
                 }
             )
 
-        bookings = TripBooking.objects.filter(number=number).prefetch_related(
-            "status_events"
+        booking = get_object_or_404(
+            TripBooking.objects.matching_guest(
+                number, otp=otp, email=email
+            ).prefetch_related("status_events")
         )
-        if otp:
-            bookings = bookings.filter(otp=otp)
-        else:
-            bookings = bookings.filter(email__iexact=email)
-
-        booking = get_object_or_404(bookings)
         self.kwargs["trip_id"] = booking.schedule.trip.id
         return booking

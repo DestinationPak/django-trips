@@ -12,6 +12,23 @@ for that history.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-25
+
+### Added
+- `TripSchedule.objects.bookable()`: upcoming, published departures,
+  soonest first.
+- `TripReview.objects.verified()`: reviews cleared for display and for
+  the review count.
+- `TripBooking.objects.matching_guest(number, otp=..., email=...)`: the
+  guest booking lookup, never on `number` alone.
+- `django_trips.services.toggle_trip_wishlist(user, trip)`.
+- `django_trips.locations.trips_booked_to(location)`: a destination's
+  trips, rolled up from its children when it's a REGION.
+
+### Changed
+- The API views and serializers now call these instead of repeating the
+  rules inline, so API behaviour is unchanged.
+
 ## [1.3.0] - 2026-09-25
 
 ### Added

@@ -3,6 +3,8 @@ from django.db.models import Count, DecimalField, ExpressionWrapper, F, Min, Q
 from django.utils import timezone
 from django.utils.timezone import now
 
+from django_trips.choices import ScheduleStatus
+
 
 class ActiveQuerySet(models.QuerySet):
     def active(self):
@@ -59,6 +61,10 @@ class TripScheduleQuerySet(models.QuerySet):
     def upcoming(self):
         return self.filter(start_date__gte=now())
 
+    def bookable(self):
+        """Departures a traveler can book: upcoming and published, soonest first."""
+        return self.upcoming().filter(status=ScheduleStatus.PUBLISHED).order_by("start_date")
+
     def with_price(self):
         """Annotate each schedule's price, its trip's cheapest package plus this date's surcharge."""
         return self.annotate(
@@ -79,3 +85,23 @@ class HostManager(TripCountQuerySetMixin, models.QuerySet):
 class TripBookingManager(models.QuerySet):
     def active(self):
         return self.filter(target_date__gt=timezone.now())
+
+    def matching_guest(self, number, *, otp=None, email=None):
+        """
+        The booking a guest proves they own, by `number` plus `otp` or `email`.
+
+        Never matches on `number` alone, so a guessed or leaked reference
+        number can't pull up someone else's booking. Empty when neither
+        `otp` nor `email` is given; `email` matches case-insensitively.
+        """
+        if otp:
+            return self.filter(number=number, otp=otp)
+        if email:
+            return self.filter(number=number, email__iexact=email)
+        return self.none()
+
+
+class TripReviewQuerySet(models.QuerySet):
+    def verified(self):
+        """Reviews cleared for public display and for the review count."""
+        return self.filter(is_verified=True)

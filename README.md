@@ -42,6 +42,11 @@ trips = Trip.objects.active().with_price()           # cheapest package price as
 categories = Category.objects.active().with_trip_counts()
 ```
 
+Also: `TripSchedule.objects.bookable()` (upcoming, published departures),
+`TripReview.objects.verified()`, `TripBooking.objects.matching_guest(number, otp=..., email=...)`
+(guest lookup, never on the number alone), `services.toggle_trip_wishlist(user, trip)`, and
+`locations.trips_booked_to(location)` (a destination's trips, rolled up for a REGION).
+
 `create_trip_booking` checks the selection belongs to the trip, locks the schedule row
 before counting seats, prices the booking and updates `booked_seats`. A rule failure raises
 Django's `ValidationError` with a dict keyed by field name. `create_trip`/`update_trip` cover

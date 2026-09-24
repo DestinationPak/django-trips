@@ -29,8 +29,8 @@ from django_trips.api.serializers import (
     TripWishlistToggleSerializer,
     UpcomingTripListSerializer,
 )
-from django_trips.choices import ScheduleStatus
 from django_trips.locations import destinations_with_trip_counts
+from django_trips.services import toggle_trip_wishlist
 from django_trips.models import (
     Trip,
     TripPackage,
@@ -117,9 +117,7 @@ class TripViewSet(ReadOnlyModelViewSet):  # pylint:disable=too-many-ancestors
             queryset = queryset.prefetch_related(
                 Prefetch(
                     "schedules",
-                    queryset=TripSchedule.objects.upcoming()
-                    .filter(status=ScheduleStatus.PUBLISHED)
-                    .order_by("start_date"),
+                    queryset=TripSchedule.objects.bookable(),
                     to_attr="_prefetched_upcoming_schedules",
                 ),
                 # Backs TripListSerializer.get_starting_price - same to_attr
@@ -136,7 +134,7 @@ class TripViewSet(ReadOnlyModelViewSet):  # pylint:disable=too-many-ancestors
                 # is a fresh query the ORM can't satisfy from a bare prefetch).
                 Prefetch(
                     "reviews",
-                    queryset=TripReview.objects.filter(is_verified=True),
+                    queryset=TripReview.objects.verified(),
                     to_attr="_prefetched_verified_reviews",
                 ),
                 "images",
@@ -177,14 +175,8 @@ class TripViewSet(ReadOnlyModelViewSet):  # pylint:disable=too-many-ancestors
     )
     def wishlist(self, request, *args, **kwargs):  # pylint:disable=unused-argument
         """Toggle the current user's wishlist membership for this trip."""
-        trip = self.get_object()
-        wishlist_entry, created = TripWishlist.objects.get_or_create(
-            user=request.user, trip=trip
-        )
-        if not created:
-            wishlist_entry.delete()
-
-        serializer = TripWishlistToggleSerializer({"is_wished": created})
+        is_wished = toggle_trip_wishlist(request.user, self.get_object())
+        serializer = TripWishlistToggleSerializer({"is_wished": is_wished})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 

@@ -11,6 +11,7 @@ from django.db.models import Count, Q
 
 from django_trips.choices import LocationType
 from django_trips.models import (
+    Trip,
     get_active_locations_queryset,
     get_location_model,
     location_model_supports_hierarchy,
@@ -74,3 +75,16 @@ def destinations_with_trip_counts():
         .distinct()
         .order_by("-trips_count", "name")
     )
+
+
+def trips_booked_to(location):
+    """
+    Return the trips destined for `location`, or for its children when it's a REGION.
+
+    The same rollup `destinations_with_trip_counts()` counts, so a region's
+    trip count and its trips always agree.
+    """
+    destinations = Q(destination=location)
+    if location_model_supports_hierarchy() and location.type == LocationType.REGION:
+        destinations |= Q(destination__parent=location)
+    return Trip.objects.filter(destinations)
