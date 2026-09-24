@@ -12,6 +12,28 @@ for that history.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-25
+
+The package now ships the trips domain only: models, querysets, services,
+admin and migrations. Build your own API on `django_trips.services`,
+`django_trips.locations` and the model querysets (see the README's
+"Business rules"). Pin `django-trips<2` to keep the old API.
+
+### Removed
+- `django_trips.api`: every view, serializer, filter, paginator and schema
+  annotation, deprecated since 1.3.0.
+- `django_trips.urls` and `django_trips.views`, so the package no longer
+  mounts any URLs.
+- `Trip.get_absolute_url()` and the `DJANGO_TRIPS_URL_NAMESPACE` setting:
+  the method reversed a URL inside the removed API. Build a trip's URL from
+  your own routes.
+- `django_trips.tests.factories.AuthenticatedUserTestCase`, a JWT login
+  helper only the API tests used.
+- The `djangorestframework`, `djangorestframework_simplejwt`,
+  `drf-spectacular`, `django-filter`, `PyJWT` and `PyYAML` dependencies.
+  `djangorestframework` may still be installed, because
+  `django-config-models` depends on it.
+
 ## [1.4.0] - 2026-09-25
 
 ### Added

@@ -1,8 +1,9 @@
 # Django Trips
 
 A Django app for trips, schedules, bookings, and related travel data: models, querysets,
-business rules and admin. It also ships a DRF API, deprecated since 1.3.0 and removed in 2.0.0
-(see "Business rules" below).
+business rules and admin. It ships no API or URLs: build your own endpoints on the services and
+querysets described under "Business rules" below. (The DRF API it shipped up to 1.x was removed
+in 2.0.0; see the changelog.)
 
 This service is a core component of the [DestinationPak](https://destinationpak.com) project — a platform designed 
 to make exploring and booking adventures across Pakistan easier and more accessible.
@@ -52,40 +53,6 @@ before counting seats, prices the booking and updates `booked_seats`. A rule fai
 Django's `ValidationError` with a dict keyed by field name. `create_trip`/`update_trip` cover
 trip writes, including the itinerary upsert.
 
-> **Deprecated:** the DRF API below (`django_trips.api`, `django_trips.urls`) is removed in
-> 2.0.0. Build your own endpoints on the services and querysets above.
-
-Add the following to your root `urls.py` or to your desired file location.   
-```
-urlpatterns = [
-    ...
-    path('trips/', include('django_trips.urls')),
-]
-```
-This mounts the whole app under your own chosen namespace (`trips/` above - replace with
-whatever prefix you like) with the lib's own `v1/` version underneath it, e.g.
-`trips/v1/trips/`, `trips/v1/schema/redoc/`. The app versions itself independently of
-your project's own API version, so bumping *your* API to `v2` doesn't imply anything
-changed in this lib, and vice versa.
-
-If you'd rather skip the lib's own version segment and wire the endpoints directly into
-your own scheme, include `django_trips.api.urls` instead:
-```
-urlpatterns = [
-    ...
-    path('trips/', include(('django_trips.api.urls', 'trips-api'), namespace='trips-api')),
-]
-```
-
-`Trip.get_absolute_url()` and `TripListSerializer`/`TripDetailSerializer`'s `trip_url`
-field both need to resolve `trip-detail`'s URL. The serializers do this off the current
-request's own resolved namespace, so they work regardless of where you've mounted these
-views. `get_absolute_url()` has no request to read that from (e.g. Django admin's "View
-on site" calls it bare), so it defaults to the `trips-api` namespace shown above; if you
-mount these views under a different namespace instead - e.g. re-exposing them under your
-own project's URL scheme rather than including this app's urls.py directly - set
-`DJANGO_TRIPS_URL_NAMESPACE` in your settings to match.
-
 ## Custom Location model
 
 `django_trips.Location` (a self-hierarchical `name`/`slug`/`lat`/`lon`/`type`/`parent` model,
@@ -103,9 +70,8 @@ Two settings, both optional and both defaulting to this package's own bundled mo
 - **`DJANGO_TRIPS_LOCATION_ADAPTER`** - a dotted path to a `django_trips.location_adapter
   .LocationAdapter` subclass telling this app how to read your model's fields as if they were
   `Location`'s (`get_name`, `get_slug`, `get_lat`, `get_lon`, `get_type_display`, `get_region`,
-  `get_travel_tips`, `get_importance`, `get_poster`). Every place this app reads a location for
-  API output goes through `django_trips.location_adapter.get_location_adapter()`, never by
-  field name directly, so your adapter is the only place that needs to know your model's real
+  `get_travel_tips`, `get_importance`, `get_poster`). Code that reads a location's fields should go through
+  `django_trips.location_adapter.get_location_adapter()` rather than field names directly, so your adapter is the only place that needs to know your model's real
   shape.
 
 **Set both before your project's first `migrate`.** Like `AUTH_USER_MODEL`, this is a
@@ -139,14 +105,13 @@ libraries - stick with the adapter approach above; that's what it's for.
 
 A few features are tied to `Location`'s own hierarchy shape (`type`/`parent`) rather than the
 adapter's field-level contract - the REGION-rollup behavior in `django_trips.locations`
-(`expand_destination_slugs`, `destinations_with_trip_counts`) and
-`DestinationWithSchedulesSerializer`'s region grouping. These assume the default, unswapped `Location` model and aren't guaranteed to
+(`expand_destination_slugs`, `destinations_with_trip_counts`, `trips_booked_to`). These assume the default, unswapped `Location` model and aren't guaranteed to
 work against an arbitrary swapped-in model that doesn't share that hierarchy concept.
 
 If your swapped-in model has an `is_active`-style flag, define an `active()` method on its
 default manager/queryset (matching `ActiveQuerySet.active()` on this package's own `Location`).
-`get_active_locations_queryset()` (`models.py`) - what every location-choice field in the API
-(`departure`/`destination`/`locations` on create/update) is scoped to - checks for that method by
+`get_active_locations_queryset()` (`models.py`) - what a trip's `departure`/`destination`/
+`locations` choices should be scoped to - checks for that method by
 name and silently falls back to every row, active or not, when it's absent. Not part of the
 `LocationAdapter` contract, since a swapped-in model isn't guaranteed to have a concept of
 active/inactive at all - but if yours does, it's worth adding.
@@ -188,10 +153,9 @@ trip_status_changed.connect(notify_status_change, sender=Trip)
 disconnect/connect override mechanism as above. `TripBooking.cancel(changed_by=..., reason=...)`
 goes through `set_status`, so cancellations land in the same history.
 
-The events are what backs a traveler-facing "booking activity" timeline —
-`TripBookingSerializer` exposes them as a read-only `status_events` list (including on the
-anonymous lookup endpoint), deliberately without `changed_by`: which staff member actioned a
-booking isn't the traveler's business. Note that no event is logged at creation, so a
+The events are what backs a traveler-facing "booking activity" timeline
+(`booking.status_events`). When exposing them to travelers, leave out `changed_by`: which staff
+member actioned a booking isn't the traveler's business. Note that no event is logged at creation, so a
 booking that has never moved off `PENDING` has an empty list; render the booking's own
 `created` timestamp for that first "booking placed" entry.
 
@@ -269,65 +233,6 @@ following settings.
 python manage.py generate_trips --batch_size=100
 ``` 
 Change the `batch_size` variable to create as much of trips you want. 
-
-## Developer Docs & API Documentation
-You can access the all available API endpoints on the following links.
-* http://localhost:8000/api/v1/schema/redoc
-* http://localhost:8000/api/v1/schema/swagger-ui/
-
-## API Endpoints
-The following pages are served in the development:
-
-| Page                    | Method | URL                                                          |
-|-------------------------|--------|--------------------------------------------------------------|
-| All Trips List          | GET    | http://localhost:8000/api/v1/trips/                          |
-| Upcoming Trips List     | GET    | http://localhost:8000/api/v1/trips/upcoming/                 |
-| Search Trip             | GET    | http://localhost:8000/api/v1/trips/upcoming/?name=Boston      |
-| Single Trip             | GET    | http://localhost:8000/api/v1/trips/{identifier}/             |
-| Update Trip             | PUT    | http://localhost:8000/api/v1/trips/{identifier}/             |
-| Delete Trip             | DELETE | http://localhost:8000/api/v1/trips/{identifier}/             |
-| Create Trip             | POST   | http://localhost:8000/api/v1/trips/                          |
-| Toggle Trip Wishlist    | POST   | http://localhost:8000/api/v1/trips/{identifier}/wishlist/     |
-| Destinations List       | GET    | http://localhost:8000/api/v1/destinations/                   |
-| Destinations Detail     | GET    | _TODO_                                                         |
-| All Trip Bookings       | GET    | http://localhost:8000/api/v1/trips/{trip_id}/bookings/       |
-| Book a Trip             | POST   | http://localhost:8000/api/v1/trips/{trip_id}/bookings/create/ |
-| Booking Details         | GET    | http://localhost:8000/api/v1/trips/bookings/{number}/        |
-| Update Booking          | PUT    | http://localhost:8000/api/v1/trips/bookings/{number}/        |
-| Cancel Booking          | POST   | http://localhost:8000/api/v1/trips/bookings/{number}/cancel/ |
-| Review Trip             | GET    | _TODO_                                                         |
-| Trip Reviews & Comments | GET    | _TODO_                                                         |
-
-### Filtering & ordering
-
-`GET /trips/` supports the following query parameters (see `TripFilter` in `api/filters.py`):
-
-| Param                          | Description                                                    |
-|---------------------------------|------------------------------------------------------------------|
-| `name`                          | Case-insensitive partial match on trip name                     |
-| `destination`                    | Comma-separated destination slugs, e.g. `?destination=hunza,skardu` |
-| `category`                       | Comma-separated category slugs, e.g. `?category=hiking,camping` |
-| `duration_from` / `duration_to`  | Trip duration in days (inclusive)                                |
-| `price_from` / `price_to`        | Only matches trips with a single published schedule in this price range |
-| `date_from` / `date_to`          | Only matches trips with a single published schedule in this date range (`YYYY-MM-DD`) |
-| `ordering`                       | One of `name`, `duration`, `price`; prefix with `-` for descending, e.g. `?ordering=-price` |
-
-`GET /trips/upcoming/` supports its own equivalent set of filters (`name`, `price_from`/`price_to`,
-`date_from`/`date_to`, `destination`, `duration_from`/`duration_to`) plus
-`?ordering=` on `trip__name`, `price`, `start_date`, or `trip__duration`.
-
-### API permissions
-| Authentication          | Token Life |   
-|-------------------------|------------|
-| `SessionAuthentication` | UNLIMITED  |
-| `JWTAuthentication`     | 7 Days     |
-
-
-| Permissions       |
-|-------------------|
-| `IsAuthenticated` |
-| `IsAdminUser`     |
-
 
 ## Develop Django Trips
 Kick the docker build using the following command. 
