@@ -4,10 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`django-trips` is a reusable Django app (published as a pip package, see `pyproject.toml`) providing a REST API for
-managing trips, schedules, bookings, hosts, and locations. It's the core trips service behind the
-[DestinationPak](https://destinationpak.com) platform. Consumers install it and mount its URLs under a namespace of
-their choosing (see README "Usage").
+`django-trips` is a reusable Django app (published as a pip package, see `pyproject.toml`) for trips, schedules,
+bookings, hosts, and locations: models, querysets, business rules (`services.py`) and admin. It's the core trips
+domain behind the [DestinationPak](https://destinationpak.com) platform. It also still ships a DRF API
+(`django_trips.api`, `django_trips.urls`), deprecated since 1.3.0 and removed in 2.0.0: from 2.0 the package ships
+the domain only and each consumer builds its own API on the services and querysets.
 
 The importable app lives at `src/django_trips/` (`src/` layout - see "Packaging" below for why). `devsite/` is a
 separate, throwaway Django *project* shell used only for local dev (`urls.py`/`wsgi.py`/`asgi.py`) - deliberately
@@ -88,8 +89,8 @@ Everything hangs off `Trip` (`django_trips/models.py`). Key relationships:
   `django_trips.location_adapter.get_location_adapter()` (`LocationSerializer`, `DestinationWithSchedulesSerializer`,
   `TripReviewSerializer`/`TestimonialSerializer`'s `get_location`) instead of reading field names off the model, so
   an installer's own swapped-in model doesn't need matching field names - only a `DJANGO_TRIPS_LOCATION_ADAPTER`
-  override. The REGION-rollup hierarchy behavior (`expand_destination_slugs` in `api/filters.py`,
-  `ActiveDestinationsWithSchedulesView`'s queryset, `DestinationWithSchedulesSerializer.get_schedules`) is `Location`'s
+  override. The REGION-rollup hierarchy behavior (`expand_destination_slugs` and `destinations_with_trip_counts`
+  in `locations.py`, `DestinationWithSchedulesSerializer.get_schedules`) is `Location`'s
   own `parent`/`type` concept, not part of that adapter contract, and only works against the default, unswapped
   model. `get_active_locations_queryset()` (used everywhere a location choice is offered on create/update)
   checks for an `active()` method on the swapped-in model's manager and falls back to every row, active or
@@ -130,7 +131,28 @@ Everything hangs off `Trip` (`django_trips/models.py`). Key relationships:
   `api/serializers.py` falls back to a direct per-object query when that context key is absent, e.g. when
   `TripDetailSerializer` is rendered nested inside `TripBookingSerializer`.
 
-### API layer
+### Business rules
+
+Rules live in `services.py` (writes) and the model querysets in `managers.py` (reads), never only in a serializer
+or view, so any caller gets the same behavior without going through DRF:
+
+- `create_trip_booking()` owns booking: terms, the selection belonging to the trip (`validate_trip_booking()`,
+  zero queries), the seat check under `select_for_update()` on the schedule, pricing via `get_effective_price()`,
+  the Standard package fallback, and the `booked_seats` update. `create_trip()`/`update_trip()` own trip writes
+  (categories are additive-only on update; the itinerary is upserted by `day_index`).
+- A rule failure raises Django's `ValidationError` with a dict keyed by field. API code converts it; the 1.x
+  serializers keep each response's old shape (lists from `validate()`, a plain string for the seats error raised
+  on save).
+- Read-side: `Trip.objects.with_price()` / `TripSchedule.objects.with_price()` (the annotation must be named
+  `price` for `?ordering=price`, and can't be `starting_price`, a setter-less model property), and
+  `with_trip_counts()` on categories, trust badges and hosts. Location queries are functions in `locations.py`,
+  not manager methods, because `Location` is swappable.
+- Tests run on SQLite, which ignores `select_for_update()`, so the lock is tested by asserting it is requested.
+
+### API layer (deprecated, removed in 2.0.0)
+
+Don't add endpoints or business logic here; importing `django_trips.api` emits a `DeprecationWarning`. The
+notes below describe the 1.x API as it stands.
 
 - `django_trips/api/urls.py` wires a DRF `DefaultRouter` (`TripViewSet`, booking viewset) plus explicit `path()`
   entries for endpoints that don't fit REST-router conventions (upcoming trips, destinations, categories, nested
@@ -149,8 +171,7 @@ Everything hangs off `Trip` (`django_trips/models.py`). Key relationships:
 - Ordering uses DRF's `OrderingFilter`, and where ordering is by an annotated/computed value (e.g. `?ordering=price`
   on `TripViewSet.list`), the queryset annotation name must exactly match the ordering field name — DRF orders by
   the literal client-supplied term, not an alias — and must not collide with an existing model property name (see
-  the comment above `TripViewSet.ordering_fields`, and `get_queryset()`'s `Min("schedules__price", ...)`
-  annotation, both scoped to `status=ScheduleStatus.PUBLISHED`).
+  the comment above `TripViewSet.ordering_fields`, and `Trip.objects.with_price()`).
 - `api/paginators.py` has three styles, none of which is set explicitly on the *most* views: `CustomLimitOffsetPaginator`
   (limit/offset, used by `TripViewSet`/`UpcomingTripsListAPIView`) and `TripBookingsPagination` (page-number style,
   default DRF envelope, used by the booking list/create views in `api/views/booking.py`) are both explicitly set as

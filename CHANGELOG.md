@@ -12,6 +12,8 @@ for that history.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-25
+
 ### Added
 - `django_trips.services` now holds the booking and trip rules that used to
   live only inside the API serializers: `create_trip_booking()` (selection
