@@ -8,7 +8,6 @@ import swapper
 from config_models.models import ConfigurationModel
 from django.conf import settings
 from django.db import models, transaction
-from django.urls import reverse
 from django.utils import timezone
 from django.utils.text import slugify
 from django.utils.timezone import now
@@ -575,15 +574,6 @@ class Trip(SlugMixin, models.Model):
         date-bound, so no active/upcoming schedule filtering applies here.
         """
         return self.packages.order_by("base_price").first().base_price
-
-    def get_absolute_url(self):
-        # This is the trips serializers' trip_url field's canonical source too
-        # (TripListSerializer/TripDetailSerializer.get_trip_url) - a consuming project
-        # that doesn't mount this app's own urls.py under the README's documented
-        # "trips-api" namespace (e.g. destipak re-exposing these views under its own
-        # namespace instead) overrides DJANGO_TRIPS_URL_NAMESPACE to match.
-        namespace = getattr(settings, "DJANGO_TRIPS_URL_NAMESPACE", "trips-api")
-        return reverse(f"{namespace}:trip-detail", kwargs={"identifier": self.slug})
 
     @property
     def cancellation_policy(self):

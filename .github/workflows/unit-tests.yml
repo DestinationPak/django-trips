@@ -31,7 +31,6 @@ jobs:
       run: |
         python --version
         python -c "import django; print('Django', django.get_version())"
-        python -c "import rest_framework; print('djangorestframework', rest_framework.VERSION)"
 
     - name: run tests
       run: pytest

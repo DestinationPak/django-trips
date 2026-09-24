@@ -396,9 +396,6 @@ class TestTrip(TestCase):
     def test_repr(self):
         self.assertIn(self.trip.name, repr(self.trip))
 
-    def test_get_absolute_url(self):
-        self.assertIn(self.trip.slug, self.trip.get_absolute_url())
-
     def test_active_excludes_trips_of_unverified_hosts(self):
         """An unverified host has no public presence, so its trips shouldn't either."""
         unverified_trip = TripFactory(host=HostFactory(verified=False))

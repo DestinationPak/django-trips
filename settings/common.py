@@ -3,7 +3,6 @@ Django settings for trips project.
 """
 
 import os
-from datetime import timedelta
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -29,13 +28,9 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "rest_framework",
-    "rest_framework.authtoken",
     "config_models",
     "crum",
     "django_extensions",
-    "drf_spectacular",
-    "django_filters",
     "django_trips",
     "taggit",
 ]
@@ -115,27 +110,8 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 
-SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(days=7),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=15),
-    "ALGORITHM": "HS256",
-    "AUTH_HEADER_TYPES": ("Bearer",),
-}
 
 
-REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
-        # You can also keep these if needed for browsable API:
-        "rest_framework.authentication.SessionAuthentication",
-        "rest_framework.authentication.BasicAuthentication",
-    ],
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
-    "DEFAULT_PAGINATION_CLASS": "django_trips.api.paginators.TripResponsePagination",
-    "PAGE_SIZE": 10,
-    "DEFAULT_FILTER_BACKENDS": ["django_filters.rest_framework.DjangoFilterBackend"],
-}
 
 # # # # # # # # # # # # # # # # # # # # # # #
 #     Generate trips command args           #
@@ -200,24 +176,3 @@ TRIP_GEARS = (
 )
 TRIP_OPTIONS = ("Deluxe", "Budget", "VIP", "Twin Sharing")
 
-SPECTACULAR_SETTINGS = {
-    "TITLE": "Django Trips API",
-    "DESCRIPTION": "Django Trips management restful API",
-    "VERSION": "1.0.0",
-    "SERVE_INCLUDE_SCHEMA": False,
-    "APPEND_COMPONENTS": {
-        "securitySchemes": {
-            "ApiKeyAuth": {"type": "apiKey", "in": "header", "name": "api-key"}
-        }
-    },
-    "ENUM_NAME_OVERRIDES": {
-        "BookingStatusEnum": "django_trips.choices.BookingStatus",
-        "PackageTierEnum": "django_trips.choices.PackageTier",
-        "LocationTypeEnum": "django_trips.choices.LocationType",
-        "AvailabilityTypeEnum": "django_trips.choices.AvailabilityType",
-        "ScheduleStatusEnum": "django_trips.choices.ScheduleStatus",
-    },
-    "ENUM_SUFFIX": "Enum",
-    "COMPONENT_NO_READ_ONLY_REQUIRED": True,
-    "SCHEMA_PATH_PREFIX": "/v1",
-}

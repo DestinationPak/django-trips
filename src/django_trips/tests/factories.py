@@ -10,12 +10,10 @@ from datetime import timedelta
 import factory.fuzzy
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
-from django.test import TestCase
 from django.utils import timezone
 from django.utils.text import slugify
 from factory.django import DjangoModelFactory
 from faker import Faker
-from rest_framework_simplejwt.tokens import AccessToken
 
 from django_trips.choices import (
     BookingStatus,
@@ -48,19 +46,6 @@ USER_PASSWORD = "pswd"
 fake = Faker()
 
 User = get_user_model()
-
-
-class AuthenticatedUserTestCase(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        cls.user = UserFactory()
-        cls.access_token = AccessToken.for_user(cls.user)
-        cls.headers = {"Authorization": f"Bearer {cls.access_token}"}
-
-    def get_access_token_header_for_user(self, user):
-        access_token = AccessToken.for_user(user)
-        return {"Authorization": f"Bearer {access_token}"}
 
 
 class GroupFactory(DjangoModelFactory):

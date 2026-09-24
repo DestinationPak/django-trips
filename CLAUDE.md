@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `django-trips` is a reusable Django app (published as a pip package, see `pyproject.toml`) for trips, schedules,
 bookings, hosts, and locations: models, querysets, business rules (`services.py`) and admin. It's the core trips
-domain behind the [DestinationPak](https://destinationpak.com) platform. It also still ships a DRF API
-(`django_trips.api`, `django_trips.urls`), deprecated since 1.3.0 and removed in 2.0.0: from 2.0 the package ships
-the domain only and each consumer builds its own API on the services and querysets.
+domain behind the [DestinationPak](https://destinationpak.com) platform. It ships no API, views or URLs (the DRF
+API was removed in 2.0.0): each consumer builds its own endpoints on the services and querysets. Never add an
+endpoint, serializer or `urls.py` back; a new rule goes in `services.py` or a queryset.
 
 The importable app lives at `src/django_trips/` (`src/` layout - see "Packaging" below for why). `devsite/` is a
 separate, throwaway Django *project* shell used only for local dev (`urls.py`/`wsgi.py`/`asgi.py`) - deliberately
@@ -41,8 +41,8 @@ with the plain `docker compose run --rm web pytest` form.
 Running a single test (inside the container, e.g. via `make shell`):
 
 ```bash
-pytest django_trips/api/tests/test_trip_list.py
-pytest django_trips/api/tests/test_trip_list.py::SomeTestCase::test_something
+pytest django_trips/tests/test_services.py
+pytest django_trips/tests/test_services.py::CreateTripBookingTestCase::test_adds_the_party_to_booked_seats
 pytest django_trips/management/tests/test_generate_trips.py
 ```
 
@@ -85,12 +85,10 @@ Everything hangs off `Trip` (`django_trips/models.py`). Key relationships:
   `TripReview.location`, `Testimonial.location`, `TripPickupLocation.location`) is declared via
   `swapper.get_model_name("django_trips", "Location")`, not the bare class, and `get_location_model()`
   (`models.py`) is how code reaches "whichever model is actually active" rather than importing `Location`
-  directly. Every place this app reads a location's fields for API output goes through
-  `django_trips.location_adapter.get_location_adapter()` (`LocationSerializer`, `DestinationWithSchedulesSerializer`,
-  `TripReviewSerializer`/`TestimonialSerializer`'s `get_location`) instead of reading field names off the model, so
-  an installer's own swapped-in model doesn't need matching field names - only a `DJANGO_TRIPS_LOCATION_ADAPTER`
-  override. The REGION-rollup hierarchy behavior (`expand_destination_slugs` and `destinations_with_trip_counts`
-  in `locations.py`, `DestinationWithSchedulesSerializer.get_schedules`) is `Location`'s
+  directly. A consumer reads a location's fields through `django_trips.location_adapter.get_location_adapter()`
+  instead of by field name, so an installer's own swapped-in model doesn't need matching field names - only a
+  `DJANGO_TRIPS_LOCATION_ADAPTER` override. The REGION-rollup hierarchy behavior (`expand_destination_slugs`,
+  `destinations_with_trip_counts` and `trips_booked_to` in `locations.py`) is `Location`'s
   own `parent`/`type` concept, not part of that adapter contract, and only works against the default, unswapped
   model. `get_active_locations_queryset()` (used everywhere a location choice is offered on create/update)
   checks for an `active()` method on the swapped-in model's manager and falls back to every row, active or
@@ -116,76 +114,32 @@ Everything hangs off `Trip` (`django_trips/models.py`). Key relationships:
 - `TripReview` (an individual, per-trip rating breakdown) is distinct from `TripReviewSummary` (a curated,
   one-to-one *rollup* per trip — not auto-computed from `TripReview` rows) which is in turn distinct from
   `Testimonial` (freeform, site-wide marketing quotes not tied to a specific trip) — don't conflate these when
-  adding review-related features. `get_trip_review_summary_data()` in `api/serializers.py` is the shared helper
-  (used by both `TripListSerializer` and `TripDetailSerializer`) that renders `TripReviewSummary` as all-zero
-  defaults when none has been curated yet, plus a `reviews_count` of verified `TripReview` rows — it's a plain
-  function rather than a serializer-mixin field because DRF's `ModelSerializer` silently auto-builds a field from
-  the model when a same-named field is declared on a non-`Serializer` base class.
+  adding review-related features. The public review count is `TripReview.objects.verified()`, not every row.
 - `CancellationPolicy`/`RefundPolicy` are `ConfigurationModel` (django-config-models) singletons for the
   host-wide default; `Trip.cancellation_policy`/`refund_policy` properties prefer the host's own policy over these
   defaults when set.
 - `TripWishlist` is a simple `(user, trip)` join (unique together) for a user's saved/wishlisted trips, toggled via
-  `TripViewSet.wishlist` (`POST /trips/<identifier>/wishlist/`). The `is_wished` field on
-  `TripListSerializer`/`TripDetailSerializer` is backed by a `wished_trip_ids` set precomputed once per request in
-  `TripViewSet.get_serializer_context` (avoids an `exists()` query per trip on `/trips/`); `get_is_wished()` in
-  `api/serializers.py` falls back to a direct per-object query when that context key is absent, e.g. when
-  `TripDetailSerializer` is rendered nested inside `TripBookingSerializer`.
+  `services.toggle_trip_wishlist()`.
 
 ### Business rules
 
-Rules live in `services.py` (writes) and the model querysets in `managers.py` (reads), never only in a serializer
-or view, so any caller gets the same behavior without going through DRF:
+Rules live in `services.py` (writes) and the model querysets in `managers.py` (reads), so every consumer's API,
+management command or admin action gets the same behavior:
 
 - `create_trip_booking()` owns booking: terms, the selection belonging to the trip (`validate_trip_booking()`,
   zero queries), the seat check under `select_for_update()` on the schedule, pricing via `get_effective_price()`,
   the Standard package fallback, and the `booked_seats` update. `create_trip()`/`update_trip()` own trip writes
   (categories are additive-only on update; the itinerary is upserted by `day_index`).
-- A rule failure raises Django's `ValidationError` with a dict keyed by field. API code converts it; the 1.x
-  serializers keep each response's old shape (lists from `validate()`, a plain string for the seats error raised
-  on save).
-- Read-side: `Trip.objects.with_price()` / `TripSchedule.objects.with_price()` (the annotation must be named
-  `price` for `?ordering=price`, and can't be `starting_price`, a setter-less model property), and
+- A rule failure raises Django's `ValidationError` with a dict keyed by field, for the consumer's API to turn
+  into its own error response.
+- Read-side: `Trip.objects.with_price()` / `TripSchedule.objects.with_price()` (the annotation is named
+  `price` so a consumer's `?ordering=price` can sort on it, and can't be `starting_price`, a setter-less model property), and
   `with_trip_counts()` on categories, trust badges and hosts, `TripSchedule.objects.bookable()` (upcoming +
   published), `TripReview.objects.verified()`, and `TripBooking.objects.matching_guest()` (the guest lookup, never
   on `number` alone). `services.toggle_trip_wishlist()` owns the wishlist toggle. Location queries
   (`expand_destination_slugs`, `destinations_with_trip_counts`, `trips_booked_to`) are functions in
   `locations.py`, not manager methods, because `Location` is swappable.
 - Tests run on SQLite, which ignores `select_for_update()`, so the lock is tested by asserting it is requested.
-
-### API layer (deprecated, removed in 2.0.0)
-
-Don't add endpoints or business logic here; importing `django_trips.api` emits a `DeprecationWarning`. The
-notes below describe the 1.x API as it stands.
-
-- `django_trips/api/urls.py` wires a DRF `DefaultRouter` (`TripViewSet`, booking viewset) plus explicit `path()`
-  entries for endpoints that don't fit REST-router conventions (upcoming trips, destinations, categories, nested
-  booking creation). drf-spectacular serves schema/swagger/redoc from the same urlpatterns.
-- `TripViewSet.lookup_field = "identifier"` — trip detail/update/delete accept either a numeric PK or a slug
-  (`get_object()` branches on `identifier.isdigit()`). Any new single-trip endpoint should follow this convention.
-- Serializer/permission selection is action-based (`get_serializer_class`, permission via
-  `IsAuthenticatedOrReadOnly` + `IsStaffForDeleteOnly`): list/retrieve are public, create/update need auth, delete
-  needs staff. PATCH is deliberately unsupported (`http_method_names` excludes it).
-- Filtering uses `django_filters`, not ad-hoc query param parsing. `TripFilter`/`UpcomingTripsFilter` in
-  `api/filters.py` are the pattern to extend. Note `TripFilter.filter_queryset`: price/date filters are
-  intentionally *not* independent per-field django-filter fields — they're combined into a single `Q` against
-  `TripSchedule` in `filter_queryset()` so a trip only matches if *one* schedule satisfies all constraints together
-  (otherwise a trip could match via two different schedules, e.g. a cheap-but-past one and an
-  expensive-but-future one). Follow this combined-constraint pattern for any new multi-field schedule filter.
-- Ordering uses DRF's `OrderingFilter`, and where ordering is by an annotated/computed value (e.g. `?ordering=price`
-  on `TripViewSet.list`), the queryset annotation name must exactly match the ordering field name — DRF orders by
-  the literal client-supplied term, not an alias — and must not collide with an existing model property name (see
-  the comment above `TripViewSet.ordering_fields`, and `Trip.objects.with_price()`).
-- `api/paginators.py` has three styles, none of which is set explicitly on the *most* views: `CustomLimitOffsetPaginator`
-  (limit/offset, used by `TripViewSet`/`UpcomingTripsListAPIView`) and `TripBookingsPagination` (page-number style,
-  default DRF envelope, used by the booking list/create views in `api/views/booking.py`) are both explicitly set as
-  `pagination_class` on their views. `TripResponsePagination` (a page-number paginator with a custom
-  `{next, previous, count, current, pages, results}` envelope) is `REST_FRAMEWORK["DEFAULT_PAGINATION_CLASS"]` in
-  `settings/common.py` — no view sets it explicitly, but it's still live as the fallback on any view that doesn't
-  override `pagination_class` (currently `ActiveCategoriesListAPIView` and `ActiveDestinationsWithSchedulesView`).
-  Match whichever style the endpoint you're touching already uses; they are not interchangeable response shapes for
-  existing clients.
-- Auth is dual: `SessionAuthentication` (browsable API) and JWT (`rest_framework_simplejwt`, 7-day access /
-  15-day refresh, see `SIMPLE_JWT` in `settings/common.py`).
 
 ### Management commands
 
@@ -266,9 +220,8 @@ discovery. Same shape as `django_hotels`/`django_rentals`; three things worth kn
   (`python -m zipfile -l dist/*.whl`) afterward.
 
 `django_trips.tests` (the factories module referenced in "Testing conventions" above) ships in
-the built package deliberately; `django_trips.api.tests` and `django_trips.management.tests`
-(this package's own internal test suites, not documented as consumer-facing anywhere) are
-excluded via `packages.find`'s `exclude`.
+the built package deliberately; `django_trips.management.tests` (this package's own internal test
+suite, not documented as consumer-facing anywhere) is excluded via `packages.find`'s `exclude`.
 
 Releasing is CI-only: pushing a version tag triggers `release.yaml`, which builds, runs
 `twine check`, and publishes via PyPI Trusted Publishing (OIDC - `permissions: id-token:
