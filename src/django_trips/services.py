@@ -1,4 +1,21 @@
-"""Pricing calculations spanning TripSchedule/TripPackage/TripPickupLocation."""
+"""Business rules for trips and bookings, independent of any API layer."""
+
+from django.core.exceptions import ValidationError
+from django.db import transaction
+
+from django_trips.choices import PackageTier
+from django_trips.models import (
+    Trip,
+    TripBooking,
+    TripItinerary,
+    TripPackage,
+    TripSchedule,
+)
+
+TERMS_NOT_ACCEPTED = (
+    "You must accept the Terms & Conditions and cancellation policy to book."
+)
+TRIP_M2M_FIELDS = ("locations", "facilities", "trust_badges", "gear", "tags")
 
 
 def get_effective_price(package, schedule=None, pickup=None):
@@ -19,3 +36,202 @@ def get_effective_price(package, schedule=None, pickup=None):
         "price": package.base_price + surcharge_adult + pickup_addl,
         "child_price": package.base_child_price + surcharge_child + pickup_addl,
     }
+
+
+def validate_trip_booking(trip, schedule, *, package=None, pickup_location=None):
+    """
+    Raise a ValidationError, keyed by field, if the selection doesn't fit `trip`.
+
+    The schedule and package must belong to `trip`, and the pickup point to
+    the schedule. Compares ids only, so it makes no queries.
+    """
+    if schedule.trip_id != trip.pk:
+        raise ValidationError(
+            {"schedule": "The schedule must be the same as provided trip"}
+        )
+    if package and package.trip_id != trip.pk:
+        raise ValidationError(
+            {"package": "The package must belong to the same trip as the schedule"}
+        )
+    if pickup_location and pickup_location.schedule_id != schedule.pk:
+        raise ValidationError(
+            {
+                "pickup_location": "The pickup location must belong to the "
+                "selected schedule"
+            }
+        )
+
+
+def create_trip_booking(  # pylint:disable=too-many-arguments,too-many-locals
+    trip,
+    schedule,
+    *,
+    full_name,
+    email,
+    phone_number,
+    target_date,
+    adults,
+    children=0,
+    package=None,
+    pickup_location=None,
+    message=None,
+    terms_accepted=False,
+    created_by=None,
+):
+    """
+    Book `adults` + `children` seats on one of `trip`'s schedules.
+
+    Raises a ValidationError keyed by field when the terms weren't accepted,
+    the selection doesn't fit the trip, or too few seats are left. The seat
+    check and the `booked_seats` update happen under a row lock on the
+    schedule, so two concurrent bookings can't both take the last seats.
+    Without a package, the trip's Standard package is used, created at a
+    zero price if missing.
+    """
+    if not terms_accepted:
+        raise ValidationError({"terms_accepted": TERMS_NOT_ACCEPTED})
+    validate_trip_booking(
+        trip, schedule, package=package, pickup_location=pickup_location
+    )
+    total_persons = adults + children
+
+    with transaction.atomic():
+        schedule = TripSchedule.objects.select_for_update().get(pk=schedule.pk)
+        remaining_seats = schedule.seats_left
+        if total_persons > remaining_seats:
+            raise ValidationError(
+                {"adults": f"Only {remaining_seats} seat(s) left for this schedule."}
+            )
+
+        if package is None:
+            package, _ = TripPackage.objects.get_or_create(
+                trip=schedule.trip,
+                name=PackageTier.STANDARD,
+                defaults={"base_price": 0, "base_child_price": 0},
+            )
+        effective = get_effective_price(
+            package, schedule=schedule, pickup=pickup_location
+        )
+        booking = TripBooking.objects.create(
+            schedule=schedule,
+            package=package,
+            pickup_location=pickup_location,
+            full_name=full_name,
+            email=email,
+            phone_number=phone_number,
+            target_date=target_date,
+            adults=adults,
+            children=children,
+            message=message,
+            terms_accepted=terms_accepted,
+            created_by=created_by,
+            total_price=effective["price"] * adults
+            + effective["child_price"] * children,
+        )
+
+        schedule.booked_seats += total_persons
+        schedule.save(update_fields=["booked_seats"])
+
+    return booking
+
+
+def upsert_trip_itinerary(trip, itinerary_data):
+    """
+    Save `trip`'s itinerary days, matched by `day_index`, in bulk.
+
+    A day already saved is updated in place and a day missing from
+    `itinerary_data` is left alone. On a repeated `day_index` the last one
+    wins. Returns the category ids the days reference, for the caller to add
+    to `trip.categories`.
+    """
+    itinerary_categories = set()
+    items_by_day = {}
+    for item in itinerary_data:
+        day_index = item.pop("day_index")
+        items_by_day[day_index] = item
+        if item.get("category"):
+            itinerary_categories.add(item["category"])
+
+    existing_by_day = {
+        itinerary.day_index: itinerary
+        for itinerary in TripItinerary.objects.filter(
+            trip=trip, day_index__in=items_by_day.keys()
+        )
+    }
+    to_create = []
+    to_update = []
+    for day_index, item in items_by_day.items():
+        existing = existing_by_day.get(day_index)
+        if existing is None:
+            to_create.append(TripItinerary(trip=trip, day_index=day_index, **item))
+            continue
+        for field, value in item.items():
+            setattr(existing, field, value)
+        to_update.append(existing)
+
+    if to_create:
+        TripItinerary.objects.bulk_create(to_create)
+    if to_update:
+        TripItinerary.objects.bulk_update(
+            to_update,
+            fields=[
+                "title",
+                "description",
+                "location",
+                "category",
+                "start_time",
+                "end_time",
+            ],
+        )
+    return itinerary_categories
+
+
+@transaction.atomic
+def create_trip(*, created_by=None, itinerary=None, categories=None, **fields):
+    """
+    Create a trip with its many-to-many links and day-wise itinerary.
+
+    `fields` takes the trip's own fields plus any of `locations`,
+    `facilities`, `trust_badges`, `gear` and `tags`. Categories referenced
+    by an itinerary day are added to the trip's categories.
+    """
+    relations = {name: fields.pop(name, None) or [] for name in TRIP_M2M_FIELDS}
+    trip = Trip.objects.create(created_by=created_by, **fields)
+    for name, values in relations.items():
+        getattr(trip, name).set(values)
+    trip.categories.set(categories or [])
+
+    itinerary_categories = upsert_trip_itinerary(trip, itinerary or [])
+    if itinerary_categories:
+        trip.categories.add(*itinerary_categories)
+    return trip
+
+
+@transaction.atomic
+def update_trip(trip, *, itinerary=None, categories=None, **fields):
+    """
+    Update a trip, leaving out anything passed as None.
+
+    A given many-to-many list replaces the current one, except
+    `categories`, which is only ever added to: an update must not drop a
+    category just because the request omitted it. `itinerary` is upserted
+    by day, keeping days it doesn't mention.
+    """
+    relations = {
+        name: fields.pop(name) for name in TRIP_M2M_FIELDS if name in fields
+    }
+    for attr, value in fields.items():
+        setattr(trip, attr, value)
+    trip.save()
+
+    for name, values in relations.items():
+        if values is not None:
+            getattr(trip, name).set(values)
+    if categories is not None:
+        trip.categories.add(*categories)
+
+    if itinerary is not None:
+        itinerary_categories = upsert_trip_itinerary(trip, itinerary)
+        if itinerary_categories:
+            trip.categories.add(*itinerary_categories)
+    return trip

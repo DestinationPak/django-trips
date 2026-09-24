@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Optional
 
 import crum
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django_countries.serializer_fields import CountryField
@@ -13,7 +13,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from taggit.serializers import TaggitSerializer, TagListSerializerField
 
-from django_trips.choices import LocationType, PackageTier, ScheduleStatus
+from django_trips.choices import LocationType, ScheduleStatus
 from django_trips.location_adapter import get_location_adapter
 from django_trips.models import (
     BookingStatusEvent,
@@ -36,7 +36,8 @@ from django_trips.models import (
     get_active_locations_queryset,
     location_model_supports_hierarchy,
 )
-from django_trips.services import get_effective_price
+from django_trips import services
+from django_trips.services import upsert_trip_itinerary  # pylint:disable=unused-import
 from django_trips.utils import format_trip_duration, resolve_media_url
 
 if TYPE_CHECKING:
@@ -258,59 +259,6 @@ class TripItineraryWriteSerializer(BaseTripItinerarySerializer):
         fields = BaseTripItinerarySerializer.Meta.fields
 
 
-def upsert_trip_itinerary(trip, itinerary_data):
-    """
-    Upsert `trip`'s day-wise itinerary by day_index in bulk: one SELECT (to
-    split already-saved days from new ones) plus at most one bulk_create and
-    one bulk_update, instead of a SELECT+INSERT/UPDATE pair per itinerary day
-    from a per-item `update_or_create` loop.
-
-    Shared by `TripCreateSerializer.create` (every day is necessarily new -
-    the extra SELECT here always comes back empty, a negligible cost for not
-    duplicating this logic) and `.update` (a day already saved must be
-    updated in place, not duplicated, and any day not present in this
-    payload must be left alone). On a duplicate day_index within the same
-    payload, the last occurrence wins - same as a per-item `update_or_create`
-    loop would have produced.
-
-    Returns the set of category ids referenced by any itinerary day, for the
-    caller to add to `trip.categories` once.
-    """
-    itinerary_categories = set()
-    items_by_day = {}
-    for item in itinerary_data:
-        day_index = item.pop("day_index")
-        items_by_day[day_index] = item
-        if item.get("category"):
-            itinerary_categories.add(item["category"])
-
-    existing_by_day = {
-        itinerary.day_index: itinerary
-        for itinerary in TripItinerary.objects.filter(
-            trip=trip, day_index__in=items_by_day.keys()
-        )
-    }
-    to_create = []
-    to_update = []
-    for day_index, item in items_by_day.items():
-        existing = existing_by_day.get(day_index)
-        if existing is None:
-            to_create.append(TripItinerary(trip=trip, day_index=day_index, **item))
-            continue
-        for field, value in item.items():
-            setattr(existing, field, value)
-        to_update.append(existing)
-
-    if to_create:
-        TripItinerary.objects.bulk_create(to_create)
-    if to_update:
-        TripItinerary.objects.bulk_update(
-            to_update,
-            fields=["title", "description", "location", "category", "start_time", "end_time"],
-        )
-    return itinerary_categories
-
-
 class TripCreateSerializer(serializers.ModelSerializer):
     departure = serializers.PrimaryKeyRelatedField(
         queryset=get_active_locations_queryset(),
@@ -401,77 +349,15 @@ class TripCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("No data provided in the request body.")
         return super().validate(attrs)
 
-    @transaction.atomic
     def create(self, validated_data):
-        user = crum.get_current_user()
+        itinerary = validated_data.pop("trip_itinerary", None)
+        return services.create_trip(
+            created_by=crum.get_current_user(), itinerary=itinerary, **validated_data
+        )
 
-        # Pop M2M fields. trip_itinerary is `allow_null=True`, so an explicit
-        # `"trip_itinerary": null` payload pops None rather than falling back
-        # to the `[]` default - normalize it the same way `update()` treats a
-        # None/omitted value, so the loop below doesn't crash on it.
-        itinerary_data = validated_data.pop("trip_itinerary", None) or []
-        locations = validated_data.pop("locations", [])
-        facilities = validated_data.pop("facilities", [])
-        trust_badges = validated_data.pop("trust_badges", [])
-        gear = validated_data.pop("gear", [])
-        categories = validated_data.pop("categories", [])
-        tags = validated_data.pop("tags", [])
-
-        # Create trip instance
-        trip = super().create({"created_by": user, **validated_data})
-
-        # Add M2M relationships
-        trip.locations.set(locations)
-        trip.facilities.set(facilities)
-        trip.trust_badges.set(trust_badges)
-        trip.gear.set(gear)
-        trip.categories.set(categories)
-        trip.tags.set(tags)
-
-        itinerary_categories = upsert_trip_itinerary(trip, itinerary_data)
-        if itinerary_categories:
-            trip.categories.add(*itinerary_categories)
-
-        return trip
-
-    @transaction.atomic
     def update(self, instance, validated_data):
-        itinerary_data = validated_data.pop("trip_itinerary", None)
-        locations = validated_data.pop("locations", None)
-        facilities = validated_data.pop("facilities", None)
-        trust_badges = validated_data.pop("trust_badges", None)
-        gear = validated_data.pop("gear", None)
-        categories = validated_data.pop("categories", None)
-        tags = validated_data.pop("tags", None)
-
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        instance.save()
-
-        if locations is not None:
-            instance.locations.set(locations)
-        if facilities is not None:
-            instance.facilities.set(facilities)
-        if trust_badges is not None:
-            instance.trust_badges.set(trust_badges)
-        if gear is not None:
-            instance.gear.set(gear)
-        if categories is not None:
-            # Additive only - a trip update must never drop a category that
-            # was already set just because this request's payload omitted it.
-            instance.categories.add(*categories)
-        if tags is not None:
-            instance.tags.set(tags)
-
-        if itinerary_data is not None:
-            # Upsert by day_index - keeps any existing day not present in
-            # this payload, and updates a day already saved in place instead
-            # of duplicating it (see upsert_trip_itinerary).
-            itinerary_categories = upsert_trip_itinerary(instance, itinerary_data)
-            if itinerary_categories:
-                instance.categories.add(*itinerary_categories)
-
-        return instance
+        itinerary = validated_data.pop("trip_itinerary", None)
+        return services.update_trip(instance, itinerary=itinerary, **validated_data)
 
 
 class TripReviewSummarySerializer(serializers.ModelSerializer):
@@ -1187,84 +1073,34 @@ class TripBookingSerializer(serializers.ModelSerializer):
 
         if self.instance is None and not validated_data.get("terms_accepted"):
             raise serializers.ValidationError(
-                {
-                    "terms_accepted": (
-                        "You must accept the Terms & Conditions and "
-                        "cancellation policy to book."
-                    )
-                }
+                {"terms_accepted": services.TERMS_NOT_ACCEPTED}
             )
 
         trip = get_object_or_404(Trip.objects.active(), pk=self.context["trip_id"])
-        if validated_data["schedule"].trip.pk != trip.pk:
-            raise serializers.ValidationError(
-                {"schedule": "The schedule must be the same as provided trip"}
+        try:
+            services.validate_trip_booking(
+                trip,
+                validated_data["schedule"],
+                package=validated_data.get("package"),
+                pickup_location=validated_data.get("pickup_location"),
             )
-
-        package = validated_data.get("package")
-        if package and package.trip.pk != trip.pk:
-            raise serializers.ValidationError(
-                {"package": "The package must belong to the same trip as the schedule"}
-            )
-
-        pickup_location = validated_data.get("pickup_location")
-        if (
-            pickup_location
-            and pickup_location.schedule_id != validated_data["schedule"].pk
-        ):
-            raise serializers.ValidationError(
-                {
-                    "pickup_location": "The pickup location must belong to the "
-                    "selected schedule"
-                }
-            )
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.message_dict) from exc
+        validated_data["trip"] = trip
         return validated_data
 
     def create(self, validated_data):
-        adults = validated_data["adults"]
-        children = validated_data.get("children", 0)
-        total_persons = adults + children
-
-        with transaction.atomic():
-            # Lock the schedule row so two concurrent bookings can't both
-            # read the same remaining-seats count and both succeed.
-            schedule = TripSchedule.objects.select_for_update().get(
-                pk=validated_data["schedule"].pk
-            )
-            remaining_seats = schedule.seats_left
-            if total_persons > remaining_seats:
-                raise serializers.ValidationError(
-                    {
-                        "adults": (
-                            f"Only {remaining_seats} seat(s) left "
-                            "for this schedule."
-                        )
-                    }
-                )
-
-            package = validated_data.get("package")
-            if package is None:
-                package, _ = TripPackage.objects.get_or_create(
-                    trip=schedule.trip,
-                    name=PackageTier.STANDARD,
-                    defaults={"base_price": 0, "base_child_price": 0},
-                )
-                validated_data["package"] = package
-
-            pickup_location = validated_data.get("pickup_location")
-            effective = get_effective_price(
-                package, schedule=schedule, pickup=pickup_location
-            )
-            validated_data["total_price"] = (
-                effective["price"] * adults + effective["child_price"] * children
-            )
-
-            trip_booking = super().create(validated_data)
-
-            schedule.booked_seats += total_persons
-            schedule.save(update_fields=["booked_seats"])
-
-        return trip_booking
+        trip = validated_data.pop("trip")
+        schedule = validated_data.pop("schedule")
+        try:
+            return services.create_trip_booking(trip, schedule, **validated_data)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(
+                {
+                    field: messages[0] if len(messages) == 1 else messages
+                    for field, messages in exc.message_dict.items()
+                }
+            ) from exc
 
     def update(self, instance, validated_data):
         for key, value in validated_data.items():

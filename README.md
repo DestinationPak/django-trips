@@ -23,6 +23,31 @@ INSTALLED_APPS = [
 ```
 python manage.py migrate 
 ```
+## Business rules
+The booking and trip rules live in `django_trips.services` and the model querysets, so any
+caller (your own API, a management command, the admin) gets the same behaviour:
+
+```python
+from django_trips import services
+from django_trips.models import Category, Trip
+
+booking = services.create_trip_booking(
+    trip, schedule,
+    full_name="Ayesha Khan", email="ayesha@example.com", phone_number="+923001234567",
+    target_date=schedule.start_date, adults=2, children=1, terms_accepted=True,
+)
+trips = Trip.objects.active().with_price()           # cheapest package price as `price`
+categories = Category.objects.active().with_trip_counts()
+```
+
+`create_trip_booking` checks the selection belongs to the trip, locks the schedule row
+before counting seats, prices the booking and updates `booked_seats`. A rule failure raises
+Django's `ValidationError` with a dict keyed by field name. `create_trip`/`update_trip` cover
+trip writes, including the itinerary upsert.
+
+> **Deprecated:** the DRF API below (`django_trips.api`, `django_trips.urls`) is removed in
+> 2.0.0. Build your own endpoints on the services and querysets above.
+
 Add the following to your root `urls.py` or to your desired file location.   
 ```
 urlpatterns = [

@@ -1,5 +1,4 @@
 # pylint:disable=import-error
-from django.db.models import Count, Q
 from drf_spectacular.utils import extend_schema_view
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
@@ -17,12 +16,4 @@ class ActiveCategoriesListAPIView(ListAPIView):
     serializer_class = CategoryListSerializer
 
     def get_queryset(self):
-        return (
-            Category.objects.active()
-            .annotate(
-                trips_count=Count(
-                    "trips", filter=Q(trips__is_active=True), distinct=True
-                )
-            )
-            .order_by("-trips_count", "name")
-        )
+        return Category.objects.active().with_trip_counts()
