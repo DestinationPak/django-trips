@@ -18,6 +18,7 @@ from django_trips.models import (
 TERMS_NOT_ACCEPTED = (
     "You must accept the Terms & Conditions and cancellation policy to book."
 )
+SCHEDULE_NOT_BOOKABLE = "This departure is not open for booking."
 ALREADY_CANCELLED = "Booking is already cancelled."
 CANNOT_BE_CANCELLED = "Booking cannot be cancelled."
 TRIP_M2M_FIELDS = ("locations", "facilities", "trust_badges", "gear", "tags")
@@ -87,7 +88,8 @@ def create_trip_booking(  # pylint:disable=too-many-arguments,too-many-locals
     Book `adults` + `children` seats on one of `trip`'s schedules.
 
     Raises a ValidationError keyed by field when the terms weren't accepted,
-    the selection doesn't fit the trip, or too few seats are left. The seat
+    the selection doesn't fit the trip, the departure isn't bookable (past,
+    or not published), or too few seats are left. The seat
     check and the `booked_seats` update happen under a row lock on the
     schedule, so two concurrent bookings can't both take the last seats.
     Without a package, the trip's Standard package is used, created at a
@@ -101,7 +103,11 @@ def create_trip_booking(  # pylint:disable=too-many-arguments,too-many-locals
     total_persons = adults + children
 
     with transaction.atomic():
-        schedule = TripSchedule.objects.select_for_update().get(pk=schedule.pk)
+        schedule = (
+            TripSchedule.objects.bookable().select_for_update().filter(pk=schedule.pk).first()
+        )
+        if schedule is None:
+            raise ValidationError({"schedule": SCHEDULE_NOT_BOOKABLE})
         remaining_seats = schedule.seats_left
         if total_persons > remaining_seats:
             raise ValidationError(
@@ -266,7 +272,11 @@ def update_trip(trip, *, itinerary=None, categories=None, **fields):
 
 
 def toggle_trip_wishlist(user, trip):
-    """Add `trip` to `user`'s wishlist, or remove it if already there; return whether it is now wished."""
+    """
+    Add `trip` to `user`'s wishlist, or remove it if it's already there.
+
+    Returns whether the trip is wished after the toggle.
+    """
     entry, created = TripWishlist.objects.get_or_create(user=user, trip=trip)
     if not created:
         entry.delete()
