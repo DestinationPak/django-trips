@@ -12,6 +12,16 @@ for that history.
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-09-25
+
+### Fixed
+- Giving seats back crashed on MySQL when a booking's party was larger
+  than the departure's `booked_seats` (for example a booking made before
+  seats were counted): `booked_seats` is unsigned, so the subtraction
+  overflowed before the floor at zero could apply. The seats are now
+  given back as `Greatest(booked_seats, party) - party`, which never goes
+  below zero.
+
 ## [2.3.0] - 2026-09-25
 
 ### Added

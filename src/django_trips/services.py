@@ -147,8 +147,9 @@ def create_trip_booking(  # pylint:disable=too-many-arguments,too-many-locals
 
 
 def _give_seats_back(booking):
+    party = booking.adults + booking.children
     TripSchedule.objects.filter(pk=booking.schedule_id).update(
-        booked_seats=Greatest(F("booked_seats") - (booking.adults + booking.children), 0)
+        booked_seats=Greatest(F("booked_seats"), party) - party
     )
 
 
