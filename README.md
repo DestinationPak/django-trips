@@ -55,6 +55,38 @@ through it rather than `TripBooking.cancel()`, which only changes the status. A 
 raises Django's `ValidationError` with a dict keyed by field name. `create_trip`/`update_trip` cover
 trip writes, including the itinerary upsert.
 
+## Custom trips
+A `CustomTrip` is a private trip a traveler asks to have planned: where, when, who, transport,
+food and pace, plus the plan drafted from those answers. This package stores it and owns its
+rules; writing the plan (by a person or a model) is up to your project:
+
+```python
+from datetime import timedelta
+
+from django_trips import services
+
+custom_trip = services.create_custom_trip(user, region=hunza, duration="6_7", ...)
+source_trips = services.get_source_trips(custom_trip)   # published trips in the region and below
+services.mark_custom_trip_drafted(
+    custom_trip, plan=plan, title=plan["title"],
+    estimate_min=None, estimate_max=None, source_trips=source_trips,
+)
+services.restart_custom_trip_drafting(custom_trip, stuck_after=timedelta(minutes=10))
+```
+
+`mark_custom_trip_failed(custom_trip, reason)` records a failed draft. Each custom trip gets a
+public reference such as `CT-482193`. `estimate_min`/`estimate_max` and `metadata` are for staff,
+not travelers.
+
+Settings, all optional:
+
+| Setting | Default | What it controls |
+|---|---|---|
+| `DJANGO_TRIPS_CUSTOM_TRIP_REFERENCE_PREFIX` | `"CT"` | The reference prefix, e.g. `CT-482193` |
+| `DJANGO_TRIPS_CUSTOM_TRIP_REFERENCE_ATTEMPTS` | `10` | How many random references to try before giving up on a free one |
+| `DJANGO_TRIPS_CUSTOM_TRIP_CHILD_MIN_AGE` | `2` | Youngest age accepted in `children_ages`; younger travelers count as infants |
+| `DJANGO_TRIPS_CUSTOM_TRIP_CHILD_MAX_AGE` | `11` | Oldest age accepted in `children_ages`; older travelers count as adults |
+
 ## Custom Location model
 
 `django_trips.Location` (a self-hierarchical `name`/`slug`/`lat`/`lon`/`type`/`parent` model,

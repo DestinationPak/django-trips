@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 import swapper
 from config_models.models import ConfigurationModel
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
 from django.utils.text import slugify
@@ -19,11 +20,20 @@ import django_trips.managers as managers
 from django_trips.choices import (
     AvailabilityType,
     BookingStatus,
+    CustomTripDateMode,
+    CustomTripDuration,
+    CustomTripMeals,
+    CustomTripPace,
+    CustomTripStatus,
+    CustomTripTransport,
     Difficulty,
     FeaturedType,
+    FoodPreference,
     LocationType,
+    MonthPrecision,
     PackageTier,
     ScheduleStatus,
+    TripInterest,
     TripStatus,
 )
 from django_trips.mixins import SlugMixin
@@ -1387,3 +1397,202 @@ class TripPickupLocation(models.Model):
 
     def __repr__(self):
         return f"<TripPickupLocation schedule={self.schedule}-{self.location}>"
+
+
+CUSTOM_TRIP_SETTING_DEFAULTS = {
+    "REFERENCE_PREFIX": "CT",
+    "REFERENCE_ATTEMPTS": 10,
+    "CHILD_MIN_AGE": 2,
+    "CHILD_MAX_AGE": 11,
+}
+
+
+def custom_trip_setting(name):
+    """Read `DJANGO_TRIPS_CUSTOM_TRIP_<name>`, falling back to this package's default."""
+    return getattr(
+        settings,
+        f"DJANGO_TRIPS_CUSTOM_TRIP_{name}",
+        CUSTOM_TRIP_SETTING_DEFAULTS[name],
+    )
+
+
+class CustomTrip(models.Model):
+    """
+    A private trip a traveler asked to have planned for them.
+
+    Holds the traveler's answers (where, when, who, transport, food, pace),
+    the plan drafted from them, and the host trips it was drafted from. The
+    drafting itself is up to the installing project; this model only records
+    its result. `estimate_min`/`estimate_max` and `metadata` are for staff
+    and are not meant to be shown to the traveler.
+    """
+
+    reference = models.CharField(
+        max_length=20,
+        unique=True,
+        editable=False,
+        help_text="Public reference, e.g. CT-482193. The prefix comes from "
+        "the DJANGO_TRIPS_CUSTOM_TRIP_REFERENCE_PREFIX setting.",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="custom_trips",
+        on_delete=models.CASCADE,
+    )
+    region = models.ForeignKey(
+        swapper.get_model_name("django_trips", "Location"),
+        related_name="+",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        help_text="Where the traveler wants to go. Empty when they typed a "
+        "place into `region_note` instead.",
+    )
+    region_note = models.CharField(max_length=255, blank=True, default="")
+    duration = models.CharField(max_length=10, choices=CustomTripDuration.choices)
+    date_mode = models.CharField(max_length=10, choices=CustomTripDateMode.choices)
+    target_month = models.DateField(
+        null=True, blank=True, help_text="First day of the month, in MONTH mode."
+    )
+    month_precision = models.CharField(
+        max_length=10, choices=MonthPrecision.choices, blank=True, default=""
+    )
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+    adults = models.PositiveSmallIntegerField(default=1)
+    children = models.PositiveSmallIntegerField(default=0)
+    children_ages = models.JSONField(default=list, blank=True)
+    infants = models.PositiveSmallIntegerField(default=0)
+    transport = models.CharField(max_length=20, choices=CustomTripTransport.choices)
+    pickup_point = models.CharField(max_length=255, blank=True, default="")
+    pickup_time = models.TimeField(null=True, blank=True)
+    meals = models.CharField(max_length=20, choices=CustomTripMeals.choices)
+    food_preferences = models.JSONField(default=list, blank=True)
+    food_note = models.CharField(max_length=255, blank=True, default="")
+    pace = models.CharField(max_length=10, choices=CustomTripPace.choices)
+    interests = models.JSONField(default=list, blank=True)
+
+    status = models.CharField(
+        max_length=10,
+        choices=CustomTripStatus.choices,
+        default=CustomTripStatus.DRAFTING,
+    )
+    title = models.CharField(max_length=255, blank=True, default="")
+    plan = models.JSONField(null=True, blank=True)
+    estimate_min = models.DecimalField(
+        max_digits=12, decimal_places=0, null=True, blank=True
+    )
+    estimate_max = models.DecimalField(
+        max_digits=12, decimal_places=0, null=True, blank=True
+    )
+    source_trips = models.ManyToManyField(Trip, related_name="+", blank=True)
+    failure_reason = models.CharField(max_length=255, blank=True, default="")
+    metadata = models.JSONField(default=dict, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    drafted_at = models.DateTimeField(null=True, blank=True)
+
+    objects = managers.CustomTripQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["user", "status"])]
+
+    def __str__(self):
+        return self.title or self.reference
+
+    def __repr__(self):
+        return f"<CustomTrip {self.reference} {self.status}>"
+
+    def save(self, *args, **kwargs):
+        if not self.reference:
+            self.reference = self.generate_reference()
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def generate_reference(cls):
+        """A prefixed random six-digit reference not already in use."""
+        prefix = custom_trip_setting("REFERENCE_PREFIX")
+        for _ in range(custom_trip_setting("REFERENCE_ATTEMPTS")):
+            reference = f"{prefix}-{random.randint(0, 999999):06d}"
+            if not cls.objects.filter(reference=reference).exists():
+                return reference
+        raise RuntimeError("Could not find a free custom trip reference.")
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        errors.update(self._region_errors())
+        errors.update(self._party_errors())
+        errors.update(self._date_errors())
+        errors.update(self._pickup_errors())
+        errors.update(
+            self._choice_list_errors("food_preferences", FoodPreference.values)
+        )
+        errors.update(self._choice_list_errors("interests", TripInterest.values))
+        if errors:
+            raise ValidationError(errors)
+
+    def _region_errors(self):
+        if self.region_id or self.region_note.strip():
+            return {}
+        return {"region": "Choose a region or tell us where you want to go."}
+
+    def _party_errors(self):
+        errors = {}
+        if self.adults < 1:
+            errors["adults"] = "At least one adult has to travel."
+        ages = self.children_ages
+        min_age = custom_trip_setting("CHILD_MIN_AGE")
+        max_age = custom_trip_setting("CHILD_MAX_AGE")
+        if not isinstance(ages, list) or len(ages) != self.children:
+            errors["children_ages"] = "Give an age for each child."
+        elif not all(isinstance(age, int) and min_age <= age <= max_age for age in ages):
+            errors["children_ages"] = f"Children are {min_age} to {max_age} years old."
+        return errors
+
+    def _date_errors(self):
+        if self.date_mode == CustomTripDateMode.EXACT:
+            return self._exact_date_errors()
+        errors = {}
+        if not self.target_month:
+            errors["target_month"] = "Choose a month."
+        elif self.target_month.day != 1:
+            errors["target_month"] = "Use the first day of the month."
+        if not self.month_precision:
+            errors["month_precision"] = "Say whether this is a month or a season."
+        if self.start_date or self.end_date:
+            errors["start_date"] = "Exact dates only apply in EXACT mode."
+        return errors
+
+    def _exact_date_errors(self):
+        errors = {}
+        if not self.start_date:
+            errors["start_date"] = "Choose a start date."
+        if not self.end_date:
+            errors["end_date"] = "Choose an end date."
+        elif self.start_date and self.end_date < self.start_date:
+            errors["end_date"] = "The trip has to end after it starts."
+        if self.target_month or self.month_precision:
+            errors["target_month"] = "A month only applies in MONTH mode."
+        return errors
+
+    def _pickup_errors(self):
+        if self.transport == CustomTripTransport.PRIVATE_DRIVER:
+            if not self.pickup_point.strip():
+                return {"pickup_point": "Say where the driver should pick you up."}
+            return {}
+        if self.pickup_point or self.pickup_time:
+            return {"pickup_point": "A pickup only applies with a private driver."}
+        return {}
+
+    def _choice_list_errors(self, field, allowed):
+        values = getattr(self, field)
+        if (
+            not isinstance(values, list)
+            or len(set(values)) != len(values)
+            or not set(values) <= set(allowed)
+        ):
+            return {field: "Pick each option at most once, from the listed ones."}
+        return {}

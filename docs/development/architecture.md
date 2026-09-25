@@ -17,6 +17,7 @@ Everything hangs off `Trip` (`django_trips/models.py`).
   - `Testimonial`: freeform site-wide marketing quotes, not tied to a trip.
 - `CancellationPolicy`/`RefundPolicy` are `ConfigurationModel` (django-config-models) singletons for the default; `Trip.cancellation_policy`/`refund_policy` prefer the host's own policy when set.
 - `TripWishlist` is a `(user, trip)` join (unique together), toggled by `services.toggle_trip_wishlist()`.
+- `CustomTrip` is a traveler's request for a private trip: their answers, the drafted `plan` (JSON), the `source_trips` it was drafted from, and a `DRAFTING`/`DRAFTED`/`FAILED` status. This package never drafts the plan; the installing project does and records the result through the services. `estimate_min`/`estimate_max` and `metadata` are staff-only and must never be served to travelers. The answers' cross-field rules live in `CustomTrip.clean()`, which `create_custom_trip()` runs.
 
 ## Location is swappable
 
@@ -43,6 +44,7 @@ Writes live in `services.py` and reads in the querysets in `managers.py`, so eve
 - `create_trip()`/`update_trip()` own trip writes: categories are additive-only on update; the itinerary is upserted by `day_index`.
 - A rule failure raises Django's `ValidationError` with a dict keyed by field, for the consumer's API to turn into its own error response.
 - The admin goes through the same services: setting a booking to cancelled calls the cancel service, deletes call the delete service, and a cancelled booking can't be reopened.
+- `get_source_trips()` walks the location tree down to three levels below the chosen region, unlike `expand_destination_slugs`' single level: a traveler picks a grouping region (e.g. "Hunza & Gilgit") whose trips are booked two levels down, to towns. `mark_custom_trip_drafted()`/`mark_custom_trip_failed()` only act on a `DRAFTING` trip, so a late or duplicate drafting result can't overwrite a finished one.
 
 Read side:
 

@@ -2,17 +2,26 @@
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Prefetch, Q
 from django.db.models.functions import Greatest
+from django.utils import timezone
 
-from django_trips.choices import BookingStatus, PackageTier
+from django_trips.choices import (
+    BookingStatus,
+    CustomTripStatus,
+    PackageTier,
+    TripStatus,
+)
 from django_trips.models import (
+    CustomTrip,
     Trip,
     TripBooking,
     TripItinerary,
     TripPackage,
     TripSchedule,
     TripWishlist,
+    get_location_model,
+    location_model_supports_hierarchy,
 )
 
 TERMS_NOT_ACCEPTED = (
@@ -21,7 +30,10 @@ TERMS_NOT_ACCEPTED = (
 SCHEDULE_NOT_BOOKABLE = "This departure is not open for booking."
 ALREADY_CANCELLED = "Booking is already cancelled."
 CANNOT_BE_CANCELLED = "Booking cannot be cancelled."
+DRAFT_NOT_IN_PROGRESS = "This custom trip is not being drafted."
+DRAFT_NOT_RESTARTABLE = "This custom trip cannot be drafted again right now."
 TRIP_M2M_FIELDS = ("locations", "facilities", "trust_badges", "gear", "tags")
+REGION_DEPTH = 3
 
 
 def get_effective_price(package, schedule=None, pickup=None):
@@ -296,3 +308,116 @@ def toggle_trip_wishlist(user, trip):
     if not created:
         entry.delete()
     return created
+
+
+def create_custom_trip(user, **answers):
+    """Validate a traveler's answers and save them as a custom trip being drafted."""
+    custom_trip = CustomTrip(user=user, status=CustomTripStatus.DRAFTING, **answers)
+    custom_trip.full_clean()
+    custom_trip.save()
+    return custom_trip
+
+
+def _region_and_descendant_ids(region):
+    ids = [region.pk]
+    if not location_model_supports_hierarchy():
+        return ids
+    frontier = ids
+    for _ in range(REGION_DEPTH):
+        frontier = list(
+            get_location_model()
+            .objects.filter(parent_id__in=frontier)
+            .values_list("pk", flat=True)
+        )
+        if not frontier:
+            break
+        ids.extend(frontier)
+    return ids
+
+
+def get_source_trips(custom_trip, limit=12):
+    """
+    Return the published host trips a custom trip should be drafted from.
+
+    A trip counts when its destination or one of its stops is the chosen
+    region or any place under it, down to towns, since trips are booked to
+    towns while travelers pick a region. Itinerary days come prefetched with
+    their locations. A custom trip without a region has no source trips.
+    """
+    if custom_trip.region_id is None:
+        return Trip.objects.none()
+    location_ids = _region_and_descendant_ids(custom_trip.region)
+    return (
+        Trip.objects.active()
+        .filter(status=TripStatus.PUBLISHED)
+        .filter(Q(destination_id__in=location_ids) | Q(locations__in=location_ids))
+        .distinct()
+        .select_related("destination", "host")
+        .prefetch_related(
+            Prefetch(
+                "itinerary_days",
+                queryset=TripItinerary.objects.select_related("location"),
+            )
+        )[:limit]
+    )
+
+
+def _ensure_drafting(custom_trip):
+    if custom_trip.status != CustomTripStatus.DRAFTING:
+        raise ValidationError(DRAFT_NOT_IN_PROGRESS)
+
+
+@transaction.atomic
+def mark_custom_trip_drafted(  # pylint:disable=too-many-arguments
+    custom_trip,
+    *,
+    plan,
+    title,
+    estimate_min,
+    estimate_max,
+    source_trips,
+    metadata=None,
+):
+    """Save a finished plan on a custom trip being drafted."""
+    _ensure_drafting(custom_trip)
+    custom_trip.status = CustomTripStatus.DRAFTED
+    custom_trip.plan = plan
+    custom_trip.title = title
+    custom_trip.estimate_min = estimate_min
+    custom_trip.estimate_max = estimate_max
+    custom_trip.failure_reason = ""
+    custom_trip.drafted_at = timezone.now()
+    custom_trip.metadata = {**custom_trip.metadata, **(metadata or {})}
+    custom_trip.save()
+    custom_trip.source_trips.set(source_trips)
+    return custom_trip
+
+
+def mark_custom_trip_failed(custom_trip, reason, metadata=None):
+    """Record that drafting a custom trip gave up, and why, for staff."""
+    _ensure_drafting(custom_trip)
+    custom_trip.status = CustomTripStatus.FAILED
+    custom_trip.failure_reason = reason[:255]
+    custom_trip.metadata = {**custom_trip.metadata, **(metadata or {})}
+    custom_trip.save()
+    return custom_trip
+
+
+def restart_custom_trip_drafting(custom_trip, *, stuck_after):
+    """
+    Put a custom trip back into drafting so its plan can be written again.
+
+    Allowed after a failed draft, or when a draft has sat in DRAFTING for
+    longer than `stuck_after` (a timedelta), which means whatever was
+    writing it stopped without recording a result.
+    """
+    stuck = (
+        custom_trip.status == CustomTripStatus.DRAFTING
+        and custom_trip.updated_at < timezone.now() - stuck_after
+    )
+    if custom_trip.status != CustomTripStatus.FAILED and not stuck:
+        raise ValidationError(DRAFT_NOT_RESTARTABLE)
+    custom_trip.status = CustomTripStatus.DRAFTING
+    custom_trip.failure_reason = ""
+    custom_trip.save()
+    return custom_trip
