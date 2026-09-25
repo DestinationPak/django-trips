@@ -5,9 +5,12 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.utils import timezone
 
-from django_trips.choices import PackageTier
-from django_trips.models import TripSchedule
+from django_trips.choices import BookingStatus, PackageTier
+from django_trips.models import BookingStatusEvent, TripSchedule
 from django_trips.services import (
+    ALREADY_CANCELLED,
+    CANNOT_BE_CANCELLED,
+    cancel_trip_booking,
     create_trip,
     create_trip_booking,
     get_effective_price,
@@ -20,6 +23,7 @@ from django_trips.tests.factories import (
     FacilityFactory,
     HostFactory,
     LocationFactory,
+    TripBookingFactory,
     TripFactory,
     TripItineraryFactory,
     TripPackageFactory,
@@ -187,6 +191,59 @@ class CreateTripBookingTestCase(TestCase):
             self.book()
 
         select_for_update.assert_called_once_with()
+
+
+class CancelTripBookingTestCase(TestCase):
+    def make_booking(self, booked_seats, **kwargs):
+        schedule = TripScheduleFactory(available_seats=20, booked_seats=booked_seats)
+        return TripBookingFactory(schedule=schedule, adults=2, children=1, **kwargs)
+
+    def test_cancels_and_gives_the_seats_back(self):
+        booking = self.make_booking(booked_seats=10)
+
+        cancel_trip_booking(booking)
+
+        booking.refresh_from_db()
+        booking.schedule.refresh_from_db()
+        self.assertEqual(booking.status, BookingStatus.CANCELLED)
+        self.assertIsNotNone(booking.cancelled_at)
+        self.assertEqual(booking.schedule.booked_seats, 7)
+
+    def test_records_who_cancelled_and_why(self):
+        user = UserFactory()
+        booking = self.make_booking(booked_seats=10)
+
+        cancel_trip_booking(booking, changed_by=user, reason="Guest asked")
+
+        event = BookingStatusEvent.objects.filter(booking=booking).latest("pk")
+        self.assertEqual(event.changed_by, user)
+        self.assertEqual(event.reason, "Guest asked")
+
+    def test_booked_seats_never_go_below_zero(self):
+        booking = self.make_booking(booked_seats=1)
+
+        cancel_trip_booking(booking)
+
+        booking.schedule.refresh_from_db()
+        self.assertEqual(booking.schedule.booked_seats, 0)
+
+    def test_rejects_an_already_cancelled_booking(self):
+        booking = self.make_booking(booked_seats=10, status=BookingStatus.CANCELLED)
+
+        with self.assertRaisesMessage(ValidationError, ALREADY_CANCELLED):
+            cancel_trip_booking(booking)
+
+        booking.schedule.refresh_from_db()
+        self.assertEqual(booking.schedule.booked_seats, 10)
+
+    def test_rejects_a_confirmed_booking(self):
+        booking = self.make_booking(booked_seats=10, status=BookingStatus.CONFIRMED)
+
+        with self.assertRaisesMessage(ValidationError, CANNOT_BE_CANCELLED):
+            cancel_trip_booking(booking)
+
+        booking.schedule.refresh_from_db()
+        self.assertEqual(booking.schedule.booked_seats, 10)
 
 
 class CreateTripTestCase(TestCase):

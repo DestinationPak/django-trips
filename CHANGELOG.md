@@ -12,6 +12,21 @@ for that history.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-25
+
+### Added
+- `django_trips.services.cancel_trip_booking()`: cancels a `PENDING` or
+  `WAITING_PAYMENT` booking, records `changed_by`/`reason` on its status
+  history, and gives its `adults + children` seats back to the schedule.
+  `booked_seats` never drops below zero. Raises `ValidationError` for any
+  other status.
+
+### Fixed
+- Cancelling a booking never gave its seats back, so `booked_seats` only
+  ever went up and a schedule could show as sold out with free seats.
+  Cancel through `cancel_trip_booking()`; `TripBooking.cancel()` still
+  only changes the status.
+
 ## [2.0.0] - 2026-09-25
 
 The package now ships the trips domain only: models, querysets, services,
