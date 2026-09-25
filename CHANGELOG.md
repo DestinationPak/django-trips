@@ -12,6 +12,22 @@ for that history.
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-09-25
+
+### Added
+- A `check_cancellable` keyword on the cancel service. Staff tools pass
+  `cancel_trip_booking(..., check_cancellable=False)` to cancel a booking in any live status, not only one a guest
+  could still cancel.
+- `delete_trip_booking()`: deletes a booking, first giving its seats back unless it was
+  already cancelled.
+
+### Fixed
+- The admin changed a booking's status or deleted it without touching
+  capacity, so seats were lost for good. Cancelling or deleting in the
+  admin (including the bulk delete action) now goes through the services,
+  a cancelled booking can't be reopened, and `schedule`, `adults` and `children` are read-only on an
+  existing booking.
+
 ## [2.2.0] - 2026-09-25
 
 ### Fixed

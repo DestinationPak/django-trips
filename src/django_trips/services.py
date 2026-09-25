@@ -146,27 +146,41 @@ def create_trip_booking(  # pylint:disable=too-many-arguments,too-many-locals
     return booking
 
 
-def cancel_trip_booking(booking, *, changed_by=None, reason=""):
+def _give_seats_back(booking):
+    TripSchedule.objects.filter(pk=booking.schedule_id).update(
+        booked_seats=Greatest(F("booked_seats") - (booking.adults + booking.children), 0)
+    )
+
+
+def cancel_trip_booking(booking, *, changed_by=None, reason="", check_cancellable=True):
     """
     Cancel `booking` and give its seats back to the schedule.
 
-    Raises a ValidationError when the booking is already cancelled or its
-    status no longer allows cancelling. `changed_by` and `reason` are
-    recorded on the booking's status history. `booked_seats` never drops
-    below zero, even for a booking made before seats were counted.
+    Raises a ValidationError when the booking is already cancelled, or when
+    `check_cancellable` is set and its status no longer allows a guest or
+    host to cancel. Staff tools pass `check_cancellable=False` to cancel a
+    confirmed booking too. `changed_by` and `reason` are recorded on the
+    booking's status history. `booked_seats` never drops below zero, even
+    for a booking made before seats were counted.
     """
     if BookingStatus.is_cancelled(booking.status):
         raise ValidationError(ALREADY_CANCELLED)
-    if not booking.can_be_cancelled():
+    if check_cancellable and not booking.can_be_cancelled():
         raise ValidationError(CANNOT_BE_CANCELLED)
 
     with transaction.atomic():
         booking.cancel(changed_by=changed_by, reason=reason)
-        TripSchedule.objects.filter(pk=booking.schedule_id).update(
-            booked_seats=Greatest(F("booked_seats") - (booking.adults + booking.children), 0)
-        )
+        _give_seats_back(booking)
 
     return booking
+
+
+def delete_trip_booking(booking):
+    """Delete `booking`, first giving its seats back unless it was cancelled."""
+    with transaction.atomic():
+        if not BookingStatus.is_cancelled(booking.status):
+            _give_seats_back(booking)
+        booking.delete()
 
 
 def upsert_trip_itinerary(trip, itinerary_data):

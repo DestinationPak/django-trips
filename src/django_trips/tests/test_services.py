@@ -7,7 +7,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from django_trips.choices import BookingStatus, PackageTier, ScheduleStatus
-from django_trips.models import BookingStatusEvent, TripSchedule
+from django_trips.models import BookingStatusEvent, TripBooking, TripSchedule
 from django_trips.services import (
     ALREADY_CANCELLED,
     CANNOT_BE_CANCELLED,
@@ -15,6 +15,7 @@ from django_trips.services import (
     cancel_trip_booking,
     create_trip,
     create_trip_booking,
+    delete_trip_booking,
     get_effective_price,
     toggle_trip_wishlist,
     update_trip,
@@ -268,6 +269,40 @@ class CancelTripBookingTestCase(TestCase):
 
         booking.schedule.refresh_from_db()
         self.assertEqual(booking.schedule.booked_seats, 10)
+
+
+class StaffCancelAndDeleteTestCase(TestCase):
+    def make_booking(self, **kwargs):
+        schedule = TripScheduleFactory(available_seats=20, booked_seats=10)
+        return TripBookingFactory(schedule=schedule, adults=2, children=1, **kwargs)
+
+    def test_staff_can_cancel_a_confirmed_booking(self):
+        booking = self.make_booking(status=BookingStatus.CONFIRMED)
+
+        cancel_trip_booking(booking, check_cancellable=False)
+
+        booking.schedule.refresh_from_db()
+        self.assertEqual(booking.status, BookingStatus.CANCELLED)
+        self.assertEqual(booking.schedule.booked_seats, 7)
+
+    def test_deleting_a_live_booking_gives_its_seats_back(self):
+        booking = self.make_booking(status=BookingStatus.CONFIRMED)
+        schedule = booking.schedule
+
+        delete_trip_booking(booking)
+
+        schedule.refresh_from_db()
+        self.assertEqual(schedule.booked_seats, 7)
+        self.assertFalse(TripBooking.objects.filter(pk=booking.pk).exists())
+
+    def test_deleting_a_cancelled_booking_leaves_seats_alone(self):
+        booking = self.make_booking(status=BookingStatus.CANCELLED)
+        schedule = booking.schedule
+
+        delete_trip_booking(booking)
+
+        schedule.refresh_from_db()
+        self.assertEqual(schedule.booked_seats, 10)
 
 
 class CreateTripTestCase(TestCase):
