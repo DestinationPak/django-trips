@@ -3,7 +3,7 @@ from django.db.models import Count, DecimalField, ExpressionWrapper, F, Min, Q
 from django.utils import timezone
 from django.utils.timezone import now
 
-from django_trips.choices import ScheduleStatus
+from django_trips.choices import CustomTripStatus, ScheduleStatus
 
 
 class ActiveQuerySet(models.QuerySet):
@@ -105,3 +105,13 @@ class TripReviewQuerySet(models.QuerySet):
     def verified(self):
         """Reviews cleared for public display and for the review count."""
         return self.filter(is_verified=True)
+
+
+class CustomTripQuerySet(models.QuerySet):
+    def for_user(self, user):
+        """Custom trips planned by `user`."""
+        return self.filter(user=user)
+
+    def drafting(self):
+        """Custom trips whose plan is still being written."""
+        return self.filter(status=CustomTripStatus.DRAFTING)

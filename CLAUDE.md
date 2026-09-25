@@ -120,6 +120,11 @@ Everything hangs off `Trip` (`django_trips/models.py`). Key relationships:
   defaults when set.
 - `TripWishlist` is a simple `(user, trip)` join (unique together) for a user's saved/wishlisted trips, toggled via
   `services.toggle_trip_wishlist()`.
+- `CustomTrip` is a traveler's request for a private trip: their answers, the drafted `plan` (JSON), the
+  `source_trips` it was drafted from, and a `DRAFTING`/`DRAFTED`/`FAILED` status. This package never drafts the plan
+  itself; the installing project does and records the result through the services. `estimate_min`/`estimate_max`
+  and `metadata` are staff-only and must never be served to travelers. The answers' cross-field rules live in
+  `CustomTrip.clean()`, which `create_custom_trip()` runs.
 
 ### Business rules
 
@@ -140,6 +145,10 @@ management command or admin action gets the same behavior:
   (`expand_destination_slugs`, `destinations_with_trip_counts`, `trips_booked_to`) are functions in
   `locations.py`, not manager methods, because `Location` is swappable.
 - Tests run on SQLite, which ignores `select_for_update()`, so the lock is tested by asserting it is requested.
+- `get_source_trips()` walks the location tree down to three levels below the chosen region, unlike
+  `expand_destination_slugs`' single level: a traveler picks a grouping region (e.g. "Hunza & Gilgit") whose
+  trips are booked two levels down, to towns. `mark_custom_trip_drafted()`/`mark_custom_trip_failed()` only act on
+  a `DRAFTING` trip, so a late or duplicate drafting result can't overwrite a finished one.
 
 ### Management commands
 
@@ -173,7 +182,7 @@ the trade-off of making MySQL truly optional.
 ## Testing conventions
 
 Tests are `django.test.TestCase` subclasses, not bare `@pytest.mark.django_db`-decorated functions -
-`django_hotels`/`django_rentals` and destipak's own per-vertical apps (`djangoapps/trip_hosts/`,
+`django_hotels`/`django_rentals` and destipak's own per-vertical apps (`djangoapps/trips/`,
 `djangoapps/hotel_owners/`, `djangoapps/rental_operators/`) follow the same convention. Build fixtures
 via `django_trips/tests/factories.py` (`HostFactory`, `TripFactory`, etc.) rather than calling
 `Model.objects.create(...)` directly in a test - `django_hotels/tests/factories.py` and

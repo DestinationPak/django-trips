@@ -17,12 +17,18 @@ from faker import Faker
 
 from django_trips.choices import (
     BookingStatus,
+    CustomTripDateMode,
+    CustomTripMeals,
+    CustomTripPace,
+    CustomTripTransport,
     LocationType,
+    MonthPrecision,
     PackageTier,
     ScheduleStatus,
 )
 from django_trips.models import (
     Category,
+    CustomTrip,
     Facility,
     Gear,
     Host,
@@ -360,6 +366,24 @@ class TripWishlistFactory(DjangoModelFactory):
 
     user = factory.SubFactory(UserFactory)
     trip = factory.SubFactory(TripFactory)
+
+
+class CustomTripFactory(DjangoModelFactory):
+    """A two-adult, one-week October custom trip, still being drafted."""
+
+    class Meta:
+        model = CustomTrip
+
+    user = factory.SubFactory(UserFactory)
+    region = factory.SubFactory(LocationFactory, type=LocationType.REGION)
+    duration = "6_7"
+    date_mode = CustomTripDateMode.MONTH
+    target_month = factory.LazyFunction(lambda: timezone.now().date().replace(day=1))
+    month_precision = MonthPrecision.MONTH
+    adults = 2
+    transport = CustomTripTransport.OWN_WAY
+    meals = CustomTripMeals.BREAKFAST_DINNER
+    pace = CustomTripPace.BALANCED
 
 
 class TestimonialFactory(DjangoModelFactory):

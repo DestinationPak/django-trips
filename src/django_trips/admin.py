@@ -9,6 +9,7 @@ from django_trips.models import (
     BookingStatusEvent,
     CancellationPolicy,
     Category,
+    CustomTrip,
     Facility,
     Gear,
     Host,
@@ -437,6 +438,60 @@ class TripWishlistAdmin(admin.ModelAdmin):
     list_select_related = ("user", "trip")
     search_fields = ["user__username", "trip__name"]
     list_filter = ("created_at",)
+
+
+@admin.register(CustomTrip)
+class CustomTripAdmin(admin.ModelAdmin):
+    """
+    Read-only view of travelers' custom trips.
+
+    Rows are only ever created through `services.create_custom_trip`, and the
+    plan, estimate and drafting metadata are the drafter's output, so staff
+    can look but not add or edit.
+    """
+
+    list_display = ("reference", "title", "user", "region", "status", "created_at")
+    list_select_related = ("user", "region")
+    list_filter = ("status", "created_at")
+    search_fields = ["reference", "title", "user__username"]
+    readonly_fields = (
+        "reference",
+        "user",
+        "region",
+        "region_note",
+        "duration",
+        "date_mode",
+        "target_month",
+        "month_precision",
+        "start_date",
+        "end_date",
+        "adults",
+        "children",
+        "children_ages",
+        "infants",
+        "transport",
+        "pickup_point",
+        "pickup_time",
+        "meals",
+        "food_preferences",
+        "food_note",
+        "pace",
+        "interests",
+        "status",
+        "title",
+        "plan",
+        "estimate_min",
+        "estimate_max",
+        "source_trips",
+        "failure_reason",
+        "metadata",
+        "created_at",
+        "updated_at",
+        "drafted_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
 
 
 # =============================================================================

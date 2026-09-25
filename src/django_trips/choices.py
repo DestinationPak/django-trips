@@ -98,3 +98,65 @@ class BookingStatus(models.TextChoices):
             cls.WAITING_PAYMENT,
             cls.CANCELLED,
         )
+
+
+class CustomTripStatus(models.TextChoices):
+    """Where a traveler's custom trip is in being drafted."""
+
+    DRAFTING = "DRAFTING", "Drafting"
+    DRAFTED = "DRAFTED", "Drafted"
+    FAILED = "FAILED", "Failed"
+
+
+class CustomTripDuration(models.TextChoices):
+    DAYS_4_5 = "4_5", "4-5 days"
+    DAYS_6_7 = "6_7", "6-7 days"
+    DAYS_8_10 = "8_10", "8-10 days"
+
+
+class CustomTripDateMode(models.TextChoices):
+    MONTH = "MONTH", "A month or season"
+    EXACT = "EXACT", "Exact dates"
+
+
+class MonthPrecision(models.TextChoices):
+    """Whether a custom trip's target month is that month or the season it starts."""
+
+    MONTH = "MONTH", "Month"
+    SEASON = "SEASON", "Season"
+
+
+class CustomTripTransport(models.TextChoices):
+    PRIVATE_DRIVER = "PRIVATE_DRIVER", "Private car and driver"
+    SELF_DRIVE = "SELF_DRIVE", "Driving themselves"
+    OWN_WAY = "OWN_WAY", "Reaching the region themselves"
+
+
+class CustomTripMeals(models.TextChoices):
+    BREAKFAST_DINNER = "BREAKFAST_DINNER", "Breakfast and dinner"
+    BREAKFAST = "BREAKFAST", "Breakfast only"
+    EAT_OUT = "EAT_OUT", "Eating out"
+
+
+class CustomTripPace(models.TextChoices):
+    EASY = "EASY", "Easy"
+    BALANCED = "BALANCED", "Balanced"
+    PACKED = "PACKED", "Packed"
+
+
+class FoodPreference(models.TextChoices):
+    MILD_FOR_KIDS = "MILD_FOR_KIDS", "Mild food for the kids"
+    VEGETARIAN = "VEGETARIAN", "Vegetarian"
+    NO_BEEF = "NO_BEEF", "No beef"
+    ALLERGIES = "ALLERGIES", "Allergies"
+    LOCAL_DISHES = "LOCAL_DISHES", "Try local dishes"
+
+
+class TripInterest(models.TextChoices):
+    NATURE = "NATURE", "Nature and lakes"
+    CULTURE = "CULTURE", "Culture and forts"
+    SHORT_HIKES = "SHORT_HIKES", "Short hikes"
+    PHOTOGRAPHY = "PHOTOGRAPHY", "Photography"
+    LOCAL_FOOD = "LOCAL_FOOD", "Local food"
+    SHOPPING = "SHOPPING", "Shopping"
+    QUIET_TIME = "QUIET_TIME", "Quiet time"

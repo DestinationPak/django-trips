@@ -12,6 +12,22 @@ for that history.
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-09-25
+
+### Added
+- `CustomTrip`: a private trip a traveler asks to have planned, holding their
+  answers (region, dates, party, transport, food, pace, interests), the drafted
+  plan, the host trips it was drafted from, and a hidden price estimate and
+  drafting metadata for staff. Migration `0017_customtrip`.
+- Services: `create_custom_trip()`, `get_source_trips()` (published, active
+  trips in the chosen region and every level below it, down to towns),
+  `mark_custom_trip_drafted()`, `mark_custom_trip_failed()` and
+  `restart_custom_trip_drafting()`.
+- `CustomTrip.objects.for_user()` and `.drafting()`.
+- A read-only `CustomTrip` admin.
+- `CustomTripFactory` in `django_trips.tests.factories`.
+- The `DJANGO_TRIPS_CUSTOM_TRIP_REFERENCE_PREFIX` setting (default `CT`).
+
 ## [2.3.1] - 2026-09-25
 
 ### Fixed
