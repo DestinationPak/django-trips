@@ -88,6 +88,15 @@ class CustomTripValidationTestCase(TestCase):
 
     def test_children_ages_must_be_between_two_and_eleven(self):
         self.assert_invalid("children_ages", children_ages=[1, 9])
+        self.assert_invalid("children_ages", children_ages=[6, 12])
+
+    @override_settings(
+        DJANGO_TRIPS_CUSTOM_TRIP_CHILD_MIN_AGE=3,
+        DJANGO_TRIPS_CUSTOM_TRIP_CHILD_MAX_AGE=15,
+    )
+    def test_child_age_range_comes_from_settings(self):
+        CustomTrip(user=UserFactory(), **valid_answers(children_ages=[6, 15])).full_clean()
+        self.assert_invalid("children_ages", children_ages=[2, 9])
 
     def test_month_mode_needs_a_month(self):
         self.assert_invalid("target_month", target_month=None)
@@ -190,6 +199,16 @@ class CustomTripReferenceTestCase(TestCase):
         with mock.patch("django_trips.models.random.randint", return_value=1):
             with self.assertRaises(RuntimeError):
                 CustomTrip.generate_reference()
+
+    @override_settings(DJANGO_TRIPS_CUSTOM_TRIP_REFERENCE_ATTEMPTS=3)
+    def test_number_of_attempts_comes_from_settings(self):
+        CustomTripFactory(reference="CT-000001")
+        with mock.patch(
+            "django_trips.models.random.randint", return_value=1
+        ) as randint:
+            with self.assertRaises(RuntimeError):
+                CustomTrip.generate_reference()
+        self.assertEqual(randint.call_count, 3)
 
 
 class CustomTripQuerySetTestCase(TestCase):

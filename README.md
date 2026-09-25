@@ -75,8 +75,17 @@ services.restart_custom_trip_drafting(custom_trip, stuck_after=timedelta(minutes
 ```
 
 `mark_custom_trip_failed(custom_trip, reason)` records a failed draft. Each custom trip gets a
-public reference such as `CT-482193`; set `DJANGO_TRIPS_CUSTOM_TRIP_REFERENCE_PREFIX` to change
-the prefix. `estimate_min`/`estimate_max` and `metadata` are for staff, not travelers.
+public reference such as `CT-482193`. `estimate_min`/`estimate_max` and `metadata` are for staff,
+not travelers.
+
+Settings, all optional:
+
+| Setting | Default | What it controls |
+|---|---|---|
+| `DJANGO_TRIPS_CUSTOM_TRIP_REFERENCE_PREFIX` | `"CT"` | The reference prefix, e.g. `CT-482193` |
+| `DJANGO_TRIPS_CUSTOM_TRIP_REFERENCE_ATTEMPTS` | `10` | How many random references to try before giving up on a free one |
+| `DJANGO_TRIPS_CUSTOM_TRIP_CHILD_MIN_AGE` | `2` | Youngest age accepted in `children_ages`; younger travelers count as infants |
+| `DJANGO_TRIPS_CUSTOM_TRIP_CHILD_MAX_AGE` | `11` | Oldest age accepted in `children_ages`; older travelers count as adults |
 
 ## Custom Location model
 

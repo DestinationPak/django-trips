@@ -1399,9 +1399,21 @@ class TripPickupLocation(models.Model):
         return f"<TripPickupLocation schedule={self.schedule}-{self.location}>"
 
 
-CHILD_MIN_AGE = 2
-CHILD_MAX_AGE = 11
-REFERENCE_ATTEMPTS = 10
+CUSTOM_TRIP_SETTING_DEFAULTS = {
+    "REFERENCE_PREFIX": "CT",
+    "REFERENCE_ATTEMPTS": 10,
+    "CHILD_MIN_AGE": 2,
+    "CHILD_MAX_AGE": 11,
+}
+
+
+def custom_trip_setting(name):
+    """Read `DJANGO_TRIPS_CUSTOM_TRIP_<name>`, falling back to this package's default."""
+    return getattr(
+        settings,
+        f"DJANGO_TRIPS_CUSTOM_TRIP_{name}",
+        CUSTOM_TRIP_SETTING_DEFAULTS[name],
+    )
 
 
 class CustomTrip(models.Model):
@@ -1501,8 +1513,8 @@ class CustomTrip(models.Model):
     @classmethod
     def generate_reference(cls):
         """A prefixed random six-digit reference not already in use."""
-        prefix = getattr(settings, "DJANGO_TRIPS_CUSTOM_TRIP_REFERENCE_PREFIX", "CT")
-        for _ in range(REFERENCE_ATTEMPTS):
+        prefix = custom_trip_setting("REFERENCE_PREFIX")
+        for _ in range(custom_trip_setting("REFERENCE_ATTEMPTS")):
             reference = f"{prefix}-{random.randint(0, 999999):06d}"
             if not cls.objects.filter(reference=reference).exists():
                 return reference
@@ -1532,15 +1544,12 @@ class CustomTrip(models.Model):
         if self.adults < 1:
             errors["adults"] = "At least one adult has to travel."
         ages = self.children_ages
+        min_age = custom_trip_setting("CHILD_MIN_AGE")
+        max_age = custom_trip_setting("CHILD_MAX_AGE")
         if not isinstance(ages, list) or len(ages) != self.children:
             errors["children_ages"] = "Give an age for each child."
-        elif not all(
-            isinstance(age, int) and CHILD_MIN_AGE <= age <= CHILD_MAX_AGE
-            for age in ages
-        ):
-            errors["children_ages"] = (
-                f"Children are {CHILD_MIN_AGE} to {CHILD_MAX_AGE} years old."
-            )
+        elif not all(isinstance(age, int) and min_age <= age <= max_age for age in ages):
+            errors["children_ages"] = f"Children are {min_age} to {max_age} years old."
         return errors
 
     def _date_errors(self):

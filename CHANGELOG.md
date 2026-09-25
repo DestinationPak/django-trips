@@ -26,7 +26,10 @@ for that history.
 - `CustomTrip.objects.for_user()` and `.drafting()`.
 - A read-only `CustomTrip` admin.
 - `CustomTripFactory` in `django_trips.tests.factories`.
-- The `DJANGO_TRIPS_CUSTOM_TRIP_REFERENCE_PREFIX` setting (default `CT`).
+- Optional settings for installers: `DJANGO_TRIPS_CUSTOM_TRIP_REFERENCE_PREFIX`
+  (default `CT`), `DJANGO_TRIPS_CUSTOM_TRIP_REFERENCE_ATTEMPTS` (default `10`),
+  and `DJANGO_TRIPS_CUSTOM_TRIP_CHILD_MIN_AGE`/`_CHILD_MAX_AGE` (defaults `2`
+  and `11`), the age range accepted for a child.
 
 ## [2.3.1] - 2026-09-25
 
