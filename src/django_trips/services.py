@@ -2,8 +2,10 @@
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import F
+from django.db.models.functions import Greatest
 
-from django_trips.choices import PackageTier
+from django_trips.choices import BookingStatus, PackageTier
 from django_trips.models import (
     Trip,
     TripBooking,
@@ -16,6 +18,8 @@ from django_trips.models import (
 TERMS_NOT_ACCEPTED = (
     "You must accept the Terms & Conditions and cancellation policy to book."
 )
+ALREADY_CANCELLED = "Booking is already cancelled."
+CANNOT_BE_CANCELLED = "Booking cannot be cancelled."
 TRIP_M2M_FIELDS = ("locations", "facilities", "trust_badges", "gear", "tags")
 
 
@@ -132,6 +136,29 @@ def create_trip_booking(  # pylint:disable=too-many-arguments,too-many-locals
 
         schedule.booked_seats += total_persons
         schedule.save(update_fields=["booked_seats"])
+
+    return booking
+
+
+def cancel_trip_booking(booking, *, changed_by=None, reason=""):
+    """
+    Cancel `booking` and give its seats back to the schedule.
+
+    Raises a ValidationError when the booking is already cancelled or its
+    status no longer allows cancelling. `changed_by` and `reason` are
+    recorded on the booking's status history. `booked_seats` never drops
+    below zero, even for a booking made before seats were counted.
+    """
+    if BookingStatus.is_cancelled(booking.status):
+        raise ValidationError(ALREADY_CANCELLED)
+    if not booking.can_be_cancelled():
+        raise ValidationError(CANNOT_BE_CANCELLED)
+
+    with transaction.atomic():
+        booking.cancel(changed_by=changed_by, reason=reason)
+        TripSchedule.objects.filter(pk=booking.schedule_id).update(
+            booked_seats=Greatest(F("booked_seats") - (booking.adults + booking.children), 0)
+        )
 
     return booking
 
