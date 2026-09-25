@@ -9,3 +9,12 @@
 contributing
 changelog
 ```
+
+```{toctree}
+:hidden:
+:caption: Development
+
+development/setup
+development/architecture
+development/packaging
+```
