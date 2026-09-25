@@ -1,8 +1,10 @@
 import swapper
 from config_models.admin import ConfigurationModelAdmin
+from django import forms
 from django.contrib import admin
 
-from django_trips.choices import LocationType
+from django_trips import services
+from django_trips.choices import BookingStatus, LocationType
 from django_trips.models import (
     BookingStatusEvent,
     CancellationPolicy,
@@ -321,8 +323,40 @@ class TripItineraryAdmin(admin.ModelAdmin):
 # =============================================================================
 
 
+REOPEN_NOT_ALLOWED = (
+    "A cancelled booking can't be reopened, since its seats may be taken by now. "
+    "Create a new booking instead."
+)
+
+
+class TripBookingAdminForm(forms.ModelForm):
+    class Meta:
+        model = TripBooking
+        fields = "__all__"
+
+    def clean_status(self):
+        status = self.cleaned_data["status"]
+        if (
+            self.instance.pk
+            and BookingStatus.is_cancelled(self.instance.status)
+            and not BookingStatus.is_cancelled(status)
+        ):
+            raise forms.ValidationError(REOPEN_NOT_ALLOWED)
+        return status
+
+
 @admin.register(TripBooking)
 class TripBookingSummaryAdmin(admin.ModelAdmin):
+    """
+    Bookings, kept in step with their schedule's seat count.
+
+    Cancelling or deleting a booking here gives its seats back, a cancelled
+    booking can't be reopened, and the fields that decide how many seats a
+    booking holds are read-only once it exists.
+    """
+
+    form = TripBookingAdminForm
+    seat_fields = ("schedule", "adults", "children")
     list_display = ("number", "full_name", "schedule", "status", "phone_number", "message")
     list_select_related = ("schedule__trip",)
     search_fields = ["schedule__trip__name", "full_name", "number"]
@@ -344,6 +378,32 @@ class TripBookingSummaryAdmin(admin.ModelAdmin):
                 TripPickupLocation.objects.filter(schedule_id=obj.schedule_id)
             )
         return form
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = super().get_readonly_fields(request, obj)
+        return (*readonly_fields, *self.seat_fields) if obj else readonly_fields
+
+    def save_model(self, request, obj, form, change):
+        cancelling = (
+            change and "status" in form.changed_data and BookingStatus.is_cancelled(obj.status)
+        )
+        if cancelling:
+            obj.status = form.initial["status"]
+        super().save_model(request, obj, form, change)
+        if cancelling:
+            services.cancel_trip_booking(
+                obj,
+                changed_by=request.user,
+                reason="Cancelled in the admin",
+                check_cancellable=False,
+            )
+
+    def delete_model(self, request, obj):
+        services.delete_trip_booking(obj)
+
+    def delete_queryset(self, request, queryset):
+        for booking in queryset:
+            services.delete_trip_booking(booking)
 
 
 @admin.register(BookingStatusEvent)
