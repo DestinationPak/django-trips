@@ -49,7 +49,7 @@ Also: `TripSchedule.objects.bookable()` (upcoming, published departures),
 `locations.trips_booked_to(location)` (a destination's trips, rolled up for a REGION).
 
 `create_trip_booking` checks the selection belongs to the trip, locks the schedule row
-before counting seats, prices the booking and updates `booked_seats`. `cancel_trip_booking(booking, changed_by=...,
+(only a `bookable()` departure: upcoming and published) before counting seats, prices the booking and updates `booked_seats`. `cancel_trip_booking(booking, changed_by=...,
 reason=...)` cancels a `PENDING`/`WAITING_PAYMENT` booking and gives its seats back; cancel
 through it rather than `TripBooking.cancel()`, which only changes the status. A rule failure
 raises Django's `ValidationError` with a dict keyed by field name. `create_trip`/`update_trip` cover

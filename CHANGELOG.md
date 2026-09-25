@@ -12,6 +12,14 @@ for that history.
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-09-25
+
+### Fixed
+- `create_trip_booking()` accepted any departure of the trip, including a
+  draft, cancelled, full or already departed one. It now reads the
+  schedule through `TripSchedule.objects.bookable()` under the same row
+  lock and raises `ValidationError({"schedule": ...})` otherwise.
+
 ## [2.1.0] - 2026-09-25
 
 ### Added

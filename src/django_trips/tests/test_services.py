@@ -2,14 +2,16 @@ from datetime import timedelta
 from unittest import mock
 
 from django.core.exceptions import ValidationError
+from django.db.models import QuerySet
 from django.test import TestCase
 from django.utils import timezone
 
-from django_trips.choices import BookingStatus, PackageTier
+from django_trips.choices import BookingStatus, PackageTier, ScheduleStatus
 from django_trips.models import BookingStatusEvent, TripSchedule
 from django_trips.services import (
     ALREADY_CANCELLED,
     CANNOT_BE_CANCELLED,
+    SCHEDULE_NOT_BOOKABLE,
     cancel_trip_booking,
     create_trip,
     create_trip_booking,
@@ -110,6 +112,7 @@ class CreateTripBookingTestCase(TestCase):
         self.trip = TripFactory(trip_schedule=None)
         self.schedule = TripScheduleFactory(
             trip=self.trip,
+            status=ScheduleStatus.PUBLISHED,
             available_seats=10,
             booked_seats=0,
             additional_price=1000,
@@ -183,14 +186,35 @@ class CreateTripBookingTestCase(TestCase):
         self.assertIn("package", ctx.exception.message_dict)
 
     def test_locks_the_schedule_row_before_checking_seats(self):
+        original = QuerySet.select_for_update
         with mock.patch.object(
-            TripSchedule.objects,
-            "select_for_update",
-            wraps=TripSchedule.objects.select_for_update,
+            QuerySet, "select_for_update", autospec=True, side_effect=original
         ) as select_for_update:
             self.book()
 
-        select_for_update.assert_called_once_with()
+        select_for_update.assert_called_once()
+        self.assertIs(select_for_update.call_args.args[0].model, TripSchedule)
+
+    def test_rejects_a_departure_that_is_not_published(self):
+        for status in (ScheduleStatus.DRAFT, ScheduleStatus.CANCELLED, ScheduleStatus.FULL):
+            TripSchedule.objects.filter(pk=self.schedule.pk).update(status=status)
+
+            with self.assertRaises(ValidationError) as ctx:
+                self.book()
+
+            self.assertEqual(ctx.exception.message_dict, {"schedule": [SCHEDULE_NOT_BOOKABLE]})
+
+    def test_rejects_a_departure_that_has_already_left(self):
+        TripSchedule.objects.filter(pk=self.schedule.pk).update(
+            start_date=timezone.now() - timedelta(days=1)
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            self.book()
+
+        self.assertEqual(ctx.exception.message_dict, {"schedule": [SCHEDULE_NOT_BOOKABLE]})
+        self.schedule.refresh_from_db()
+        self.assertEqual(self.schedule.booked_seats, 0)
 
 
 class CancelTripBookingTestCase(TestCase):
