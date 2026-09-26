@@ -12,6 +12,15 @@ for that history.
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-09-26
+
+### Added
+- `revise_custom_trip_plan()`: replaces a drafted custom trip's plan, title
+  and estimate with a revised version (for example after a traveler asks for
+  a change), merging any new `metadata`. It only acts on a `DRAFTED` trip and
+  raises `ValidationError` (`PLAN_NOT_REVISABLE`) otherwise. The trip keeps
+  its `drafted_at`; keeping earlier versions is up to the installing project.
+
 ## [2.4.0] - 2026-09-25
 
 ### Added

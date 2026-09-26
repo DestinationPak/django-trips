@@ -74,7 +74,9 @@ services.mark_custom_trip_drafted(
 services.restart_custom_trip_drafting(custom_trip, stuck_after=timedelta(minutes=10))
 ```
 
-`mark_custom_trip_failed(custom_trip, reason)` records a failed draft. Each custom trip gets a
+`mark_custom_trip_failed(custom_trip, reason)` records a failed draft, and
+`revise_custom_trip_plan(custom_trip, plan=..., title=..., estimate_min=..., estimate_max=...)`
+replaces a drafted trip's plan with a revised one. Each custom trip gets a
 public reference such as `CT-482193`. `estimate_min`/`estimate_max` and `metadata` are for staff,
 not travelers.
 

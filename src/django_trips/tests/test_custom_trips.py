@@ -21,11 +21,13 @@ from django_trips.models import CustomTrip
 from django_trips.services import (
     DRAFT_NOT_IN_PROGRESS,
     DRAFT_NOT_RESTARTABLE,
+    PLAN_NOT_REVISABLE,
     create_custom_trip,
     get_source_trips,
     mark_custom_trip_drafted,
     mark_custom_trip_failed,
     restart_custom_trip_drafting,
+    revise_custom_trip_plan,
 )
 from django_trips.tests.factories import (
     CustomTripFactory,
@@ -344,6 +346,75 @@ class MarkCustomTripDraftedTestCase(TestCase):
                 estimate_max=None,
                 source_trips=[],
             )
+
+
+class ReviseCustomTripPlanTestCase(TestCase):
+    """Replacing the plan of a custom trip that has already been drafted."""
+
+    def drafted_trip(self):
+        return CustomTripFactory(
+            status=CustomTripStatus.DRAFTED,
+            plan={"title": "Draft 1"},
+            title="Draft 1",
+            estimate_min=Decimal("100000"),
+            estimate_max=Decimal("120000"),
+            metadata={"drafts": [{"model": "claude-sonnet-5"}]},
+            drafted_at=timezone.now() - timedelta(hours=1),
+        )
+
+    def test_replaces_the_plan_title_and_estimate(self):
+        custom_trip = self.drafted_trip()
+        revise_custom_trip_plan(
+            custom_trip,
+            plan={"title": "Draft 2"},
+            title="Draft 2",
+            estimate_min=Decimal("90000"),
+            estimate_max=None,
+            metadata={"chat": [{"model": "claude-sonnet-5"}]},
+        )
+        custom_trip.refresh_from_db()
+        self.assertEqual(custom_trip.plan, {"title": "Draft 2"})
+        self.assertEqual(custom_trip.title, "Draft 2")
+        self.assertEqual(custom_trip.estimate_min, Decimal("90000"))
+        self.assertIsNone(custom_trip.estimate_max)
+        self.assertEqual(custom_trip.status, CustomTripStatus.DRAFTED)
+
+    def test_merges_metadata(self):
+        custom_trip = self.drafted_trip()
+        revise_custom_trip_plan(
+            custom_trip,
+            plan={},
+            title="",
+            estimate_min=None,
+            estimate_max=None,
+            metadata={"chat": [1]},
+        )
+        custom_trip.refresh_from_db()
+        self.assertEqual(
+            custom_trip.metadata,
+            {"drafts": [{"model": "claude-sonnet-5"}], "chat": [1]},
+        )
+
+    def test_keeps_when_it_was_first_drafted(self):
+        custom_trip = self.drafted_trip()
+        drafted_at = custom_trip.drafted_at
+        revise_custom_trip_plan(
+            custom_trip, plan={}, title="", estimate_min=None, estimate_max=None
+        )
+        custom_trip.refresh_from_db()
+        self.assertEqual(custom_trip.drafted_at, drafted_at)
+
+    def test_refuses_a_trip_that_is_not_drafted(self):
+        for status in (CustomTripStatus.DRAFTING, CustomTripStatus.FAILED):
+            custom_trip = CustomTripFactory(status=status)
+            with self.assertRaisesMessage(ValidationError, PLAN_NOT_REVISABLE):
+                revise_custom_trip_plan(
+                    custom_trip,
+                    plan={},
+                    title="",
+                    estimate_min=None,
+                    estimate_max=None,
+                )
 
 
 class MarkCustomTripFailedTestCase(TestCase):
