@@ -32,6 +32,7 @@ ALREADY_CANCELLED = "Booking is already cancelled."
 CANNOT_BE_CANCELLED = "Booking cannot be cancelled."
 DRAFT_NOT_IN_PROGRESS = "This custom trip is not being drafted."
 DRAFT_NOT_RESTARTABLE = "This custom trip cannot be drafted again right now."
+PLAN_NOT_REVISABLE = "Only a drafted custom trip's plan can be revised."
 TRIP_M2M_FIELDS = ("locations", "facilities", "trust_badges", "gear", "tags")
 REGION_DEPTH = 3
 
@@ -419,5 +420,26 @@ def restart_custom_trip_drafting(custom_trip, *, stuck_after):
         raise ValidationError(DRAFT_NOT_RESTARTABLE)
     custom_trip.status = CustomTripStatus.DRAFTING
     custom_trip.failure_reason = ""
+    custom_trip.save()
+    return custom_trip
+
+
+def revise_custom_trip_plan(  # pylint:disable=too-many-arguments
+    custom_trip, *, plan, title, estimate_min, estimate_max, metadata=None
+):
+    """
+    Replace a drafted custom trip's plan with a revised one.
+
+    For changes made after the first draft, such as a traveler asking for a
+    shorter day. The trip stays DRAFTED and keeps its `drafted_at`; any
+    history of earlier versions is up to the installing project.
+    """
+    if custom_trip.status != CustomTripStatus.DRAFTED:
+        raise ValidationError(PLAN_NOT_REVISABLE)
+    custom_trip.plan = plan
+    custom_trip.title = title
+    custom_trip.estimate_min = estimate_min
+    custom_trip.estimate_max = estimate_max
+    custom_trip.metadata = {**custom_trip.metadata, **(metadata or {})}
     custom_trip.save()
     return custom_trip
