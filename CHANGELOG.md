@@ -12,6 +12,16 @@ for that history.
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-09-26
+
+### Added
+- `CustomTripDuration` gains `DAY_TRIP` (`"1"`), `DAYS_2_3` (`"2_3"`) and
+  `CUSTOM`. With `CUSTOM`, the new `CustomTrip.custom_days` holds the number of
+  days, from 1 to `DJANGO_TRIPS_CUSTOM_TRIP_MAX_DAYS` (default `14`); any other
+  length must leave it empty. Migration `0018_customtrip_lengths`.
+- `CustomTrip.day_range()`: the fewest and most days the traveler's answer
+  allows, so installers don't keep their own table of lengths.
+
 ## [2.6.0] - 2026-09-26
 
 ### Added

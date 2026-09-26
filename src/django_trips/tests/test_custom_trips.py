@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from django_trips.choices import (
     CustomTripDateMode,
+    CustomTripDuration,
     CustomTripStatus,
     CustomTripTransport,
     FoodPreference,
@@ -142,6 +143,24 @@ class CustomTripValidationTestCase(TestCase):
             end_date=days_ahead(5),
         )
 
+    def test_every_set_length_passes_without_a_number_of_days(self):
+        for duration in ("1", "2_3", "4_5", "6_7", "8_10"):
+            CustomTrip(user=UserFactory(), **valid_answers(duration=duration)).full_clean()
+
+    def test_a_set_length_rejects_a_number_of_days(self):
+        self.assert_invalid("custom_days", custom_days=5)
+
+    def test_custom_needs_a_number_of_days_within_the_cap(self):
+        for days in (None, 0, 15):
+            self.assert_invalid("custom_days", duration=CustomTripDuration.CUSTOM, custom_days=days)
+        CustomTrip(
+            user=UserFactory(), **valid_answers(duration=CustomTripDuration.CUSTOM, custom_days=14)
+        ).full_clean()
+
+    @override_settings(DJANGO_TRIPS_CUSTOM_TRIP_MAX_DAYS=5)
+    def test_the_days_cap_comes_from_settings(self):
+        self.assert_invalid("custom_days", duration=CustomTripDuration.CUSTOM, custom_days=6)
+
     def test_month_mode_needs_a_month(self):
         self.assert_invalid("target_month", target_month=None)
 
@@ -211,6 +230,17 @@ class CustomTripValidationTestCase(TestCase):
         self.assert_invalid(
             "interests", interests=[TripInterest.NATURE, TripInterest.NATURE]
         )
+
+
+class CustomTripDayRangeTestCase(TestCase):
+    def test_each_length_gives_its_fewest_and_most_days(self):
+        expected = {"1": (1, 1), "2_3": (2, 3), "4_5": (4, 5), "6_7": (6, 7), "8_10": (8, 10)}
+        for duration, day_range in expected.items():
+            self.assertEqual(CustomTrip(duration=duration).day_range(), day_range)
+
+    def test_a_custom_length_is_exactly_its_number_of_days(self):
+        custom_trip = CustomTrip(duration=CustomTripDuration.CUSTOM, custom_days=9)
+        self.assertEqual(custom_trip.day_range(), (9, 9))
 
 
 class CustomTripReferenceTestCase(TestCase):
