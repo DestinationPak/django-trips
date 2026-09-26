@@ -1404,6 +1404,7 @@ CUSTOM_TRIP_SETTING_DEFAULTS = {
     "REFERENCE_ATTEMPTS": 10,
     "CHILD_MIN_AGE": 2,
     "CHILD_MAX_AGE": 11,
+    "MAX_TRAVELERS": 20,
 }
 
 
@@ -1541,8 +1542,11 @@ class CustomTrip(models.Model):
 
     def _party_errors(self):
         errors = {}
+        max_travelers = custom_trip_setting("MAX_TRAVELERS")
         if self.adults < 1:
             errors["adults"] = "At least one adult has to travel."
+        elif self.adults + self.children + self.infants > max_travelers:
+            errors["adults"] = f"At most {max_travelers} people can travel together."
         ages = self.children_ages
         min_age = custom_trip_setting("CHILD_MIN_AGE")
         max_age = custom_trip_setting("CHILD_MAX_AGE")
@@ -1560,6 +1564,8 @@ class CustomTrip(models.Model):
             errors["target_month"] = "Choose a month."
         elif self.target_month.day != 1:
             errors["target_month"] = "Use the first day of the month."
+        elif self.target_month < timezone.localdate().replace(day=1):
+            errors["target_month"] = "Choose this month or a later one."
         if not self.month_precision:
             errors["month_precision"] = "Say whether this is a month or a season."
         if self.start_date or self.end_date:
@@ -1570,6 +1576,8 @@ class CustomTrip(models.Model):
         errors = {}
         if not self.start_date:
             errors["start_date"] = "Choose a start date."
+        elif self.start_date < timezone.localdate():
+            errors["start_date"] = "The trip can't start in the past."
         if not self.end_date:
             errors["end_date"] = "Choose an end date."
         elif self.start_date and self.end_date < self.start_date:

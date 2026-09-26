@@ -363,9 +363,33 @@ def get_source_trips(custom_trip, limit=12):
     )
 
 
-def _ensure_drafting(custom_trip):
-    if custom_trip.status != CustomTripStatus.DRAFTING:
-        raise ValidationError(DRAFT_NOT_IN_PROGRESS)
+def _lock_custom_trip(custom_trip, allowed_status, error):
+    """
+    Lock a custom trip's row and check its status there, not on the copy.
+
+    The caller's copy may be older than the row: another drafting run or
+    request may have changed the status since it was loaded.
+    """
+    locked = CustomTrip.objects.select_for_update().get(pk=custom_trip.pk)
+    if locked.status != allowed_status:
+        raise ValidationError(error)
+    return locked
+
+
+def _save_custom_trip(custom_trip, locked, changes, metadata=None):
+    """
+    Save `changes` on the locked row and copy them onto `custom_trip`.
+
+    Only the changed fields are written. New `metadata` keys are merged into
+    what the row holds now, not into the caller's possibly older copy.
+    """
+    if metadata:
+        changes = {**changes, "metadata": {**locked.metadata, **metadata}}
+    for field, value in changes.items():
+        setattr(locked, field, value)
+    locked.save(update_fields=[*changes, "updated_at"])
+    for field in [*changes, "updated_at"]:
+        setattr(custom_trip, field, getattr(locked, field))
 
 
 @transaction.atomic
@@ -379,31 +403,41 @@ def mark_custom_trip_drafted(  # pylint:disable=too-many-arguments
     source_trips,
     metadata=None,
 ):
-    """Save a finished plan on a custom trip being drafted."""
-    _ensure_drafting(custom_trip)
-    custom_trip.status = CustomTripStatus.DRAFTED
-    custom_trip.plan = plan
-    custom_trip.title = title
-    custom_trip.estimate_min = estimate_min
-    custom_trip.estimate_max = estimate_max
-    custom_trip.failure_reason = ""
-    custom_trip.drafted_at = timezone.now()
-    custom_trip.metadata = {**custom_trip.metadata, **(metadata or {})}
-    custom_trip.save()
-    custom_trip.source_trips.set(source_trips)
+    """
+    Save a finished plan on a custom trip being drafted.
+
+    The status is checked on a freshly locked row, so a late or duplicate
+    drafting run can't overwrite a trip another run already finished.
+    """
+    locked = _lock_custom_trip(
+        custom_trip, CustomTripStatus.DRAFTING, DRAFT_NOT_IN_PROGRESS
+    )
+    changes = {
+        "status": CustomTripStatus.DRAFTED,
+        "plan": plan,
+        "title": title,
+        "estimate_min": estimate_min,
+        "estimate_max": estimate_max,
+        "failure_reason": "",
+        "drafted_at": timezone.now(),
+    }
+    _save_custom_trip(custom_trip, locked, changes, metadata)
+    locked.source_trips.set(source_trips)
     return custom_trip
 
 
+@transaction.atomic
 def mark_custom_trip_failed(custom_trip, reason, metadata=None):
     """Record that drafting a custom trip gave up, and why, for staff."""
-    _ensure_drafting(custom_trip)
-    custom_trip.status = CustomTripStatus.FAILED
-    custom_trip.failure_reason = reason[:255]
-    custom_trip.metadata = {**custom_trip.metadata, **(metadata or {})}
-    custom_trip.save()
+    locked = _lock_custom_trip(
+        custom_trip, CustomTripStatus.DRAFTING, DRAFT_NOT_IN_PROGRESS
+    )
+    changes = {"status": CustomTripStatus.FAILED, "failure_reason": reason[:255]}
+    _save_custom_trip(custom_trip, locked, changes, metadata)
     return custom_trip
 
 
+@transaction.atomic
 def restart_custom_trip_drafting(custom_trip, *, stuck_after):
     """
     Put a custom trip back into drafting so its plan can be written again.
@@ -412,18 +446,19 @@ def restart_custom_trip_drafting(custom_trip, *, stuck_after):
     longer than `stuck_after` (a timedelta), which means whatever was
     writing it stopped without recording a result.
     """
+    locked = CustomTrip.objects.select_for_update().get(pk=custom_trip.pk)
     stuck = (
-        custom_trip.status == CustomTripStatus.DRAFTING
-        and custom_trip.updated_at < timezone.now() - stuck_after
+        locked.status == CustomTripStatus.DRAFTING
+        and locked.updated_at < timezone.now() - stuck_after
     )
-    if custom_trip.status != CustomTripStatus.FAILED and not stuck:
+    if locked.status != CustomTripStatus.FAILED and not stuck:
         raise ValidationError(DRAFT_NOT_RESTARTABLE)
-    custom_trip.status = CustomTripStatus.DRAFTING
-    custom_trip.failure_reason = ""
-    custom_trip.save()
+    changes = {"status": CustomTripStatus.DRAFTING, "failure_reason": ""}
+    _save_custom_trip(custom_trip, locked, changes)
     return custom_trip
 
 
+@transaction.atomic
 def revise_custom_trip_plan(  # pylint:disable=too-many-arguments
     custom_trip, *, plan, title, estimate_min, estimate_max, metadata=None
 ):
@@ -434,12 +469,14 @@ def revise_custom_trip_plan(  # pylint:disable=too-many-arguments
     shorter day. The trip stays DRAFTED and keeps its `drafted_at`; any
     history of earlier versions is up to the installing project.
     """
-    if custom_trip.status != CustomTripStatus.DRAFTED:
-        raise ValidationError(PLAN_NOT_REVISABLE)
-    custom_trip.plan = plan
-    custom_trip.title = title
-    custom_trip.estimate_min = estimate_min
-    custom_trip.estimate_max = estimate_max
-    custom_trip.metadata = {**custom_trip.metadata, **(metadata or {})}
-    custom_trip.save()
+    locked = _lock_custom_trip(
+        custom_trip, CustomTripStatus.DRAFTED, PLAN_NOT_REVISABLE
+    )
+    changes = {
+        "plan": plan,
+        "title": title,
+        "estimate_min": estimate_min,
+        "estimate_max": estimate_max,
+    }
+    _save_custom_trip(custom_trip, locked, changes, metadata)
     return custom_trip

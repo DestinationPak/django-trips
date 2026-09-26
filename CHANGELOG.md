@@ -12,6 +12,24 @@ for that history.
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-09-26
+
+### Added
+- `DJANGO_TRIPS_CUSTOM_TRIP_MAX_TRAVELERS` (default `20`): `CustomTrip.clean()`
+  now rejects a party of more people than this.
+
+### Changed
+- `CustomTrip.clean()` rejects a `target_month` before the current month and an
+  exact `start_date` before today.
+
+### Fixed
+- `mark_custom_trip_drafted()`, `mark_custom_trip_failed()`,
+  `restart_custom_trip_drafting()` and `revise_custom_trip_plan()` checked the
+  status on the caller's copy of the trip and saved every field back, so a late
+  or duplicate drafting run could overwrite a trip another run had already
+  finished. They now lock and re-read the row, check the status there, write
+  only the fields they change, and merge `metadata` into what the row holds.
+
 ## [2.5.0] - 2026-09-26
 
 ### Added
