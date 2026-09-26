@@ -4,6 +4,7 @@ from unittest import mock
 
 from django.contrib.admin.sites import site
 from django.core.exceptions import ValidationError
+from django.db.models import QuerySet
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -39,12 +40,21 @@ from django_trips.tests.factories import (
 )
 
 
+def next_month():
+    today = timezone.localdate()
+    return (today.replace(day=1) + timedelta(days=32)).replace(day=1)
+
+
+def days_ahead(days):
+    return timezone.localdate() + timedelta(days=days)
+
+
 def valid_answers(**overrides):
     answers = {
         "region": LocationFactory(type=LocationType.REGION),
         "duration": "6_7",
         "date_mode": CustomTripDateMode.MONTH,
-        "target_month": date(2026, 10, 1),
+        "target_month": next_month(),
         "month_precision": "MONTH",
         "adults": 2,
         "children": 2,
@@ -100,17 +110,49 @@ class CustomTripValidationTestCase(TestCase):
         CustomTrip(user=UserFactory(), **valid_answers(children_ages=[6, 15])).full_clean()
         self.assert_invalid("children_ages", children_ages=[2, 9])
 
+    def test_party_size_is_capped(self):
+        self.assert_invalid("adults", adults=17, children=2, children_ages=[6, 9], infants=2)
+
+    def test_the_largest_party_passes(self):
+        CustomTrip(
+            user=UserFactory(), **valid_answers(adults=16, children_ages=[6, 9], infants=2)
+        ).full_clean()
+
+    @override_settings(DJANGO_TRIPS_CUSTOM_TRIP_MAX_TRAVELERS=4)
+    def test_party_cap_comes_from_settings(self):
+        self.assert_invalid("adults", adults=3)
+
+    def test_month_cannot_be_in_the_past(self):
+        last_month = (timezone.localdate().replace(day=1) - timedelta(days=1)).replace(day=1)
+        self.assert_invalid("target_month", target_month=last_month)
+
+    def test_this_month_is_allowed(self):
+        CustomTrip(
+            user=UserFactory(),
+            **valid_answers(target_month=timezone.localdate().replace(day=1)),
+        ).full_clean()
+
+    def test_exact_dates_cannot_start_in_the_past(self):
+        self.assert_invalid(
+            "start_date",
+            date_mode=CustomTripDateMode.EXACT,
+            target_month=None,
+            month_precision="",
+            start_date=days_ahead(-1),
+            end_date=days_ahead(5),
+        )
+
     def test_month_mode_needs_a_month(self):
         self.assert_invalid("target_month", target_month=None)
 
     def test_target_month_is_the_first_of_the_month(self):
-        self.assert_invalid("target_month", target_month=date(2026, 10, 5))
+        self.assert_invalid("target_month", target_month=next_month().replace(day=5))
 
     def test_month_mode_needs_a_precision(self):
         self.assert_invalid("month_precision", month_precision="")
 
     def test_month_mode_rejects_exact_dates(self):
-        self.assert_invalid("start_date", start_date=date(2026, 10, 3))
+        self.assert_invalid("start_date", start_date=days_ahead(7))
 
     def test_exact_mode_needs_a_start_date(self):
         self.assert_invalid(
@@ -118,7 +160,7 @@ class CustomTripValidationTestCase(TestCase):
             date_mode=CustomTripDateMode.EXACT,
             target_month=None,
             month_precision="",
-            end_date=date(2026, 10, 9),
+            end_date=days_ahead(13),
         )
 
     def test_exact_mode_needs_both_dates(self):
@@ -127,7 +169,7 @@ class CustomTripValidationTestCase(TestCase):
             date_mode=CustomTripDateMode.EXACT,
             target_month=None,
             month_precision="",
-            start_date=date(2026, 10, 3),
+            start_date=days_ahead(7),
         )
 
     def test_exact_mode_start_before_end(self):
@@ -136,16 +178,16 @@ class CustomTripValidationTestCase(TestCase):
             date_mode=CustomTripDateMode.EXACT,
             target_month=None,
             month_precision="",
-            start_date=date(2026, 10, 9),
-            end_date=date(2026, 10, 3),
+            start_date=days_ahead(13),
+            end_date=days_ahead(7),
         )
 
     def test_exact_mode_rejects_a_month(self):
         self.assert_invalid(
             "target_month",
             date_mode=CustomTripDateMode.EXACT,
-            start_date=date(2026, 10, 3),
-            end_date=date(2026, 10, 9),
+            start_date=days_ahead(7),
+            end_date=days_ahead(13),
         )
 
     def test_private_driver_needs_a_pickup_point(self):
@@ -346,6 +388,73 @@ class MarkCustomTripDraftedTestCase(TestCase):
                 estimate_max=None,
                 source_trips=[],
             )
+
+
+class CustomTripStaleCopyTestCase(TestCase):
+    """The services check and write the row itself, not the caller's copy."""
+
+    def stale_copy(self, **row_changes):
+        custom_trip = CustomTripFactory(metadata={"drafts": [1]})
+        stale = CustomTrip.objects.get(pk=custom_trip.pk)
+        CustomTrip.objects.filter(pk=custom_trip.pk).update(**row_changes)
+        return stale
+
+    def mark_drafted(self, custom_trip):
+        mark_custom_trip_drafted(
+            custom_trip,
+            plan={"title": "Late"},
+            title="Late",
+            estimate_min=None,
+            estimate_max=None,
+            source_trips=[],
+        )
+
+    def test_a_late_run_cannot_draft_a_trip_already_drafted(self):
+        stale = self.stale_copy(status=CustomTripStatus.DRAFTED, plan={"title": "First"})
+        with self.assertRaisesMessage(ValidationError, DRAFT_NOT_IN_PROGRESS):
+            self.mark_drafted(stale)
+        self.assertEqual(CustomTrip.objects.get(pk=stale.pk).plan, {"title": "First"})
+
+    def test_a_late_run_cannot_fail_a_trip_already_drafted(self):
+        stale = self.stale_copy(status=CustomTripStatus.DRAFTED, plan={"title": "First"})
+        with self.assertRaisesMessage(ValidationError, DRAFT_NOT_IN_PROGRESS):
+            mark_custom_trip_failed(stale, "late")
+        self.assertEqual(CustomTrip.objects.get(pk=stale.pk).status, CustomTripStatus.DRAFTED)
+
+    def test_metadata_merges_into_the_row_not_the_copy(self):
+        stale = self.stale_copy(metadata={"drafts": [1, 2]})
+        mark_custom_trip_failed(stale, "refusal", metadata={"reason": "x"})
+        self.assertEqual(
+            CustomTrip.objects.get(pk=stale.pk).metadata, {"drafts": [1, 2], "reason": "x"}
+        )
+
+    def test_only_the_changed_fields_are_written(self):
+        stale = self.stale_copy(title="Kept")
+        mark_custom_trip_failed(stale, "refusal")
+        self.assertEqual(CustomTrip.objects.get(pk=stale.pk).title, "Kept")
+
+    def test_the_callers_copy_matches_what_was_saved(self):
+        custom_trip = CustomTripFactory()
+        self.mark_drafted(custom_trip)
+        self.assertEqual(custom_trip.status, CustomTripStatus.DRAFTED)
+        self.assertEqual(custom_trip.plan, {"title": "Late"})
+        self.assertEqual(
+            custom_trip.updated_at, CustomTrip.objects.get(pk=custom_trip.pk).updated_at
+        )
+
+    def test_each_service_locks_the_row(self):
+        original = QuerySet.select_for_update
+        calls = [
+            lambda trip: self.mark_drafted(trip),
+            lambda trip: mark_custom_trip_failed(trip, "x"),
+        ]
+        for call in calls:
+            with mock.patch.object(
+                QuerySet, "select_for_update", autospec=True, side_effect=original
+            ) as select_for_update:
+                call(CustomTripFactory())
+            select_for_update.assert_called_once()
+            self.assertIs(select_for_update.call_args.args[0].model, CustomTrip)
 
 
 class ReviseCustomTripPlanTestCase(TestCase):
