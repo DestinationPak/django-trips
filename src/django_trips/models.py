@@ -1405,6 +1405,7 @@ CUSTOM_TRIP_SETTING_DEFAULTS = {
     "CHILD_MIN_AGE": 2,
     "CHILD_MAX_AGE": 11,
     "MAX_TRAVELERS": 20,
+    "MAX_DAYS": 14,
 }
 
 
@@ -1451,6 +1452,12 @@ class CustomTrip(models.Model):
     )
     region_note = models.CharField(max_length=255, blank=True, default="")
     duration = models.CharField(max_length=10, choices=CustomTripDuration.choices)
+    custom_days = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="How many days, when `duration` is CUSTOM. At most "
+        "DJANGO_TRIPS_CUSTOM_TRIP_MAX_DAYS.",
+    )
     date_mode = models.CharField(max_length=10, choices=CustomTripDateMode.choices)
     target_month = models.DateField(
         null=True, blank=True, help_text="First day of the month, in MONTH mode."
@@ -1526,6 +1533,7 @@ class CustomTrip(models.Model):
         errors = {}
         errors.update(self._region_errors())
         errors.update(self._party_errors())
+        errors.update(self._length_errors())
         errors.update(self._date_errors())
         errors.update(self._pickup_errors())
         errors.update(
@@ -1555,6 +1563,27 @@ class CustomTrip(models.Model):
         elif not all(isinstance(age, int) and min_age <= age <= max_age for age in ages):
             errors["children_ages"] = f"Children are {min_age} to {max_age} years old."
         return errors
+
+    def _length_errors(self):
+        max_days = custom_trip_setting("MAX_DAYS")
+        if self.duration != CustomTripDuration.CUSTOM:
+            if self.custom_days is not None:
+                return {"custom_days": "A number of days only goes with CUSTOM."}
+            return {}
+        if self.custom_days is None or not 1 <= self.custom_days <= max_days:
+            return {"custom_days": f"Choose 1 to {max_days} days."}
+        return {}
+
+    def day_range(self):
+        """
+        The fewest and most days the traveler's answer allows.
+
+        A set number of days is both the fewest and the most.
+        """
+        if self.duration == CustomTripDuration.CUSTOM:
+            return self.custom_days, self.custom_days
+        low, _, high = self.duration.partition("_")
+        return int(low), int(high or low)
 
     def _date_errors(self):
         if self.date_mode == CustomTripDateMode.EXACT:

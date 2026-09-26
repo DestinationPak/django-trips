@@ -89,6 +89,7 @@ Settings, all optional:
 | `DJANGO_TRIPS_CUSTOM_TRIP_CHILD_MIN_AGE` | `2` | Youngest age accepted in `children_ages`; younger travelers count as infants |
 | `DJANGO_TRIPS_CUSTOM_TRIP_CHILD_MAX_AGE` | `11` | Oldest age accepted in `children_ages`; older travelers count as adults |
 | `DJANGO_TRIPS_CUSTOM_TRIP_MAX_TRAVELERS` | `20` | Most people (adults, children and infants together) on one custom trip |
+| `DJANGO_TRIPS_CUSTOM_TRIP_MAX_DAYS` | `14` | Most days a traveler can ask for with a `CUSTOM` length |
 
 ## Custom Location model
 

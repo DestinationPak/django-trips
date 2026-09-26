@@ -109,9 +109,12 @@ class CustomTripStatus(models.TextChoices):
 
 
 class CustomTripDuration(models.TextChoices):
+    DAY_TRIP = "1", "Day trip"
+    DAYS_2_3 = "2_3", "2-3 days"
     DAYS_4_5 = "4_5", "4-5 days"
     DAYS_6_7 = "6_7", "6-7 days"
     DAYS_8_10 = "8_10", "8-10 days"
+    CUSTOM = "CUSTOM", "A set number of days"
 
 
 class CustomTripDateMode(models.TextChoices):
