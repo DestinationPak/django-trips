@@ -1,9 +1,10 @@
 from django.db import models
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Min, Q
+from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
 from django.utils.timezone import now
 
-from django_trips.choices import CustomTripStatus, ScheduleStatus
+from django_trips.choices import BookingStatus, CustomTripStatus, ScheduleStatus
 
 
 class ActiveQuerySet(models.QuerySet):
@@ -85,6 +86,49 @@ class HostManager(TripCountQuerySetMixin, models.QuerySet):
 class TripBookingManager(models.QuerySet):
     def active(self):
         return self.filter(target_date__gt=timezone.now())
+
+    def with_trip_day(self):
+        """
+        Annotate each booking's trip day as `trip_day`.
+
+        It is the schedule's start date, or the booking's `target_date` when
+        the schedule has none. It is null when neither is set.
+        """
+        return self.annotate(
+            trip_day=Coalesce("schedule__start_date", TruncDate("target_date"))
+        )
+
+    def upcoming(self):
+        """
+        Bookings that are not cancelled and whose trip day is today or later.
+
+        Soonest first. A booking with no trip day counts as upcoming, since it
+        has not happened yet.
+        """
+        today = timezone.localdate()
+        return (
+            self.with_trip_day()
+            .exclude(status=BookingStatus.CANCELLED)
+            .filter(Q(trip_day__gte=today) | Q(trip_day__isnull=True))
+            .order_by(F("trip_day").asc(nulls_last=True), "pk")
+        )
+
+    def past(self):
+        """Bookings not cancelled whose trip day has gone, latest first."""
+        return (
+            self.with_trip_day()
+            .exclude(status=BookingStatus.CANCELLED)
+            .filter(trip_day__lt=timezone.localdate())
+            .order_by("-trip_day", "-pk")
+        )
+
+    def cancelled(self):
+        """Cancelled bookings, most recently cancelled first."""
+        return (
+            self.with_trip_day()
+            .filter(status=BookingStatus.CANCELLED)
+            .order_by(F("cancelled_at").desc(nulls_last=True), "-pk")
+        )
 
     def matching_guest(self, number, *, otp=None, email=None):
         """

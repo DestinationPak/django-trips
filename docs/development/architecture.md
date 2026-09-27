@@ -53,3 +53,4 @@ Read side:
 - `TripSchedule.objects.bookable()`: upcoming and published.
 - `TripReview.objects.verified()`.
 - `TripBooking.objects.matching_guest()`: the guest lookup, never on `number` alone.
+- `TripBooking.objects.upcoming()` / `past()` / `cancelled()`: a booking's trip day is its schedule's start date, else its `target_date` (annotated as `trip_day` by `with_trip_day()`). Upcoming and past leave out cancelled bookings; a booking with no trip day counts as upcoming and sorts last.

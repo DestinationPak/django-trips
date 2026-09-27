@@ -1,9 +1,9 @@
 from datetime import timedelta
 
 from django.test import TestCase
-from django.utils.timezone import now
+from django.utils.timezone import localdate, now
 
-from django_trips.choices import LocationType, ScheduleStatus
+from django_trips.choices import BookingStatus, LocationType, ScheduleStatus
 from django_trips.locations import (
     destinations_with_trip_counts,
     expand_destination_slugs,
@@ -166,3 +166,60 @@ class TripsBookedToTestCase(TestCase):
         TripFactory(destination=village, trip_schedule=None)
 
         self.assertEqual(list(trips_booked_to(city)), [own])
+
+
+class TripBookingStateTestCase(TestCase):
+    """Sorting a traveler's bookings into upcoming, past and cancelled."""
+
+    def booking(self, *, start_date=None, target_date=None, status=BookingStatus.PENDING, **fields):
+        schedule = TripScheduleFactory(status=ScheduleStatus.PUBLISHED, start_date=start_date)
+        return TripBookingFactory(schedule=schedule, target_date=target_date, status=status, **fields)
+
+    def test_upcoming_is_today_or_later_soonest_first(self):
+        today = localdate()
+        later = self.booking(start_date=today + timedelta(days=9))
+        soon = self.booking(start_date=today)
+        self.booking(start_date=today - timedelta(days=1))
+
+        self.assertEqual(list(TripBooking.objects.upcoming()), [soon, later])
+
+    def test_past_is_before_today_latest_first(self):
+        today = localdate()
+        older = self.booking(start_date=today - timedelta(days=30))
+        recent = self.booking(start_date=today - timedelta(days=1))
+        self.booking(start_date=today)
+
+        self.assertEqual(list(TripBooking.objects.past()), [recent, older])
+
+    def test_target_date_stands_in_when_the_schedule_has_no_date(self):
+        yesterday = now() - timedelta(days=1)
+        booking = self.booking(start_date=None, target_date=yesterday)
+
+        self.assertEqual(list(TripBooking.objects.past()), [booking])
+        self.assertFalse(TripBooking.objects.upcoming().exists())
+
+    def test_a_booking_with_no_day_is_upcoming_and_listed_last(self):
+        undated = self.booking(start_date=None, target_date=None)
+        dated = self.booking(start_date=localdate() + timedelta(days=3))
+
+        self.assertEqual(list(TripBooking.objects.upcoming()), [dated, undated])
+        self.assertFalse(TripBooking.objects.past().exists())
+
+    def test_cancelled_bookings_are_only_in_cancelled(self):
+        today = localdate()
+        future = self.booking(start_date=today + timedelta(days=5), status=BookingStatus.CANCELLED)
+        gone = self.booking(
+            start_date=today - timedelta(days=5),
+            status=BookingStatus.CANCELLED,
+            cancelled_at=now(),
+        )
+
+        self.assertFalse(TripBooking.objects.upcoming().exists())
+        self.assertFalse(TripBooking.objects.past().exists())
+        self.assertEqual(list(TripBooking.objects.cancelled()), [gone, future])
+
+    def test_trip_day_is_annotated(self):
+        day = localdate() + timedelta(days=4)
+        self.booking(start_date=day)
+
+        self.assertEqual(TripBooking.objects.upcoming().get().trip_day, day)
