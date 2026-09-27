@@ -98,6 +98,18 @@ class TripBookingManager(models.QuerySet):
             trip_day=Coalesce("schedule__start_date", TruncDate("target_date"))
         )
 
+    @staticmethod
+    def _state_filters():
+        """The filter for each booking state, over a `with_trip_day()` queryset."""
+        today = timezone.localdate()
+        not_cancelled = ~Q(status=BookingStatus.CANCELLED)
+        return {
+            "upcoming": not_cancelled
+            & (Q(trip_day__gte=today) | Q(trip_day__isnull=True)),
+            "past": not_cancelled & Q(trip_day__lt=today),
+            "cancelled": Q(status=BookingStatus.CANCELLED),
+        }
+
     def upcoming(self):
         """
         Bookings that are not cancelled and whose trip day is today or later.
@@ -105,11 +117,9 @@ class TripBookingManager(models.QuerySet):
         Soonest first. A booking with no trip day counts as upcoming, since it
         has not happened yet.
         """
-        today = timezone.localdate()
         return (
             self.with_trip_day()
-            .exclude(status=BookingStatus.CANCELLED)
-            .filter(Q(trip_day__gte=today) | Q(trip_day__isnull=True))
+            .filter(self._state_filters()["upcoming"])
             .order_by(F("trip_day").asc(nulls_last=True), "pk")
         )
 
@@ -117,8 +127,7 @@ class TripBookingManager(models.QuerySet):
         """Bookings not cancelled whose trip day has gone, latest first."""
         return (
             self.with_trip_day()
-            .exclude(status=BookingStatus.CANCELLED)
-            .filter(trip_day__lt=timezone.localdate())
+            .filter(self._state_filters()["past"])
             .order_by("-trip_day", "-pk")
         )
 
@@ -126,8 +135,22 @@ class TripBookingManager(models.QuerySet):
         """Cancelled bookings, most recently cancelled first."""
         return (
             self.with_trip_day()
-            .filter(status=BookingStatus.CANCELLED)
+            .filter(self._state_filters()["cancelled"])
             .order_by(F("cancelled_at").desc(nulls_last=True), "-pk")
+        )
+
+    def state_counts(self):
+        """
+        How many bookings are upcoming, past and cancelled, in one query.
+
+        Returns a dict with those three keys, using the same rules as
+        `upcoming()`, `past()` and `cancelled()`.
+        """
+        return self.with_trip_day().aggregate(
+            **{
+                state: Count("pk", filter=condition)
+                for state, condition in self._state_filters().items()
+            }
         )
 
     def matching_guest(self, number, *, otp=None, email=None):

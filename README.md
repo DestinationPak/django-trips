@@ -46,7 +46,7 @@ categories = Category.objects.active().with_trip_counts()
 Also: `TripSchedule.objects.bookable()` (upcoming, published departures),
 `TripReview.objects.verified()`, `TripBooking.objects.matching_guest(number, otp=..., email=...)`
 (guest lookup, never on the number alone), `TripBooking.objects.upcoming()` / `past()` / `cancelled()`
-(a traveler's bookings by trip day, annotated as `trip_day`), `services.toggle_trip_wishlist(user, trip)`, and
+(a traveler's bookings by trip day, annotated as `trip_day`) and `state_counts()` (all three counts in one query), `services.toggle_trip_wishlist(user, trip)`, and
 `locations.trips_booked_to(location)` (a destination's trips, rolled up for a REGION).
 
 `create_trip_booking` checks the selection belongs to the trip, locks the schedule row

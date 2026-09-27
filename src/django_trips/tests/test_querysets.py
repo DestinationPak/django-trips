@@ -223,3 +223,23 @@ class TripBookingStateTestCase(TestCase):
         self.booking(start_date=day)
 
         self.assertEqual(TripBooking.objects.upcoming().get().trip_day, day)
+
+    def test_state_counts_match_the_lists(self):
+        today = localdate()
+        self.booking(start_date=today)
+        self.booking(start_date=None, target_date=None)
+        self.booking(start_date=today - timedelta(days=2))
+        self.booking(start_date=today + timedelta(days=2), status=BookingStatus.CANCELLED)
+
+        with self.assertNumQueries(1):
+            counts = TripBooking.objects.state_counts()
+
+        self.assertEqual(counts, {"upcoming": 2, "past": 1, "cancelled": 1})
+
+    def test_state_counts_respect_an_earlier_filter(self):
+        mine = self.booking(start_date=localdate())
+        self.booking(start_date=localdate())
+
+        counts = TripBooking.objects.filter(created_by=mine.created_by).state_counts()
+
+        self.assertEqual(counts, {"upcoming": 1, "past": 0, "cancelled": 0})
