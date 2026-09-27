@@ -89,45 +89,57 @@ class TripBookingManager(models.QuerySet):
 
     def with_trip_day(self):
         """
-        Annotate each booking's trip day as `trip_day`.
+        Annotate each booking's first and last trip days.
 
-        It is the schedule's start date, or the booking's `target_date` when
-        the schedule has none. It is null when neither is set.
+        `trip_day` is the schedule's start date, or the booking's `target_date`
+        when the schedule has none. `trip_end_day` is the schedule's end date,
+        or `trip_day` when the schedule has none. Both are null when no date is
+        set.
         """
         return self.annotate(
             trip_day=Coalesce("schedule__start_date", TruncDate("target_date"))
+        ).annotate(trip_end_day=Coalesce("schedule__end_date", F("trip_day")))
+
+    @staticmethod
+    def _upcoming_filter():
+        """Not cancelled, and the trip has not ended or has no dates."""
+        return ~Q(status=BookingStatus.CANCELLED) & (
+            Q(trip_end_day__gte=timezone.localdate()) | Q(trip_end_day__isnull=True)
         )
 
     @staticmethod
-    def _state_filters():
-        """The filter for each booking state, over a `with_trip_day()` queryset."""
-        today = timezone.localdate()
-        not_cancelled = ~Q(status=BookingStatus.CANCELLED)
-        return {
-            "upcoming": not_cancelled
-            & (Q(trip_day__gte=today) | Q(trip_day__isnull=True)),
-            "past": not_cancelled & Q(trip_day__lt=today),
-            "cancelled": Q(status=BookingStatus.CANCELLED),
-        }
+    def _past_filter():
+        """Not cancelled, and the trip's last day is before today."""
+        return ~Q(status=BookingStatus.CANCELLED) & Q(trip_end_day__lt=timezone.localdate())
+
+    @staticmethod
+    def _cancelled_filter():
+        """Cancelled bookings."""
+        return Q(status=BookingStatus.CANCELLED)
 
     def upcoming(self):
         """
-        Bookings that are not cancelled and whose trip day is today or later.
+        Bookings that are not cancelled and whose trip has not ended.
 
-        Soonest first. A booking with no trip day counts as upcoming, since it
-        has not happened yet.
+        Soonest first. A trip under way counts as upcoming, and so does a
+        booking with no trip day, since it has not happened yet.
         """
         return (
             self.with_trip_day()
-            .filter(self._state_filters()["upcoming"])
+            .filter(self._upcoming_filter())
             .order_by(F("trip_day").asc(nulls_last=True), "pk")
         )
 
     def past(self):
-        """Bookings not cancelled whose trip day has gone, latest first."""
+        """
+        Bookings not cancelled whose trip has ended, latest first.
+
+        Only the dates count, so a booking still pending or awaiting payment
+        after its trip ended is listed here too.
+        """
         return (
             self.with_trip_day()
-            .filter(self._state_filters()["past"])
+            .filter(self._past_filter())
             .order_by("-trip_day", "-pk")
         )
 
@@ -135,7 +147,7 @@ class TripBookingManager(models.QuerySet):
         """Cancelled bookings, most recently cancelled first."""
         return (
             self.with_trip_day()
-            .filter(self._state_filters()["cancelled"])
+            .filter(self._cancelled_filter())
             .order_by(F("cancelled_at").desc(nulls_last=True), "-pk")
         )
 
@@ -147,10 +159,9 @@ class TripBookingManager(models.QuerySet):
         `upcoming()`, `past()` and `cancelled()`.
         """
         return self.with_trip_day().aggregate(
-            **{
-                state: Count("pk", filter=condition)
-                for state, condition in self._state_filters().items()
-            }
+            upcoming=Count("pk", filter=self._upcoming_filter()),
+            past=Count("pk", filter=self._past_filter()),
+            cancelled=Count("pk", filter=self._cancelled_filter()),
         )
 
     def matching_guest(self, number, *, otp=None, email=None):
