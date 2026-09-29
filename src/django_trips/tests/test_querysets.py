@@ -1,9 +1,10 @@
-from datetime import timedelta
+from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
-from django.test import TestCase
-from django.utils.timezone import now
+from django.test import TestCase, override_settings
+from django.utils.timezone import localdate, now
 
-from django_trips.choices import LocationType, ScheduleStatus
+from django_trips.choices import BookingStatus, LocationType, ScheduleStatus
 from django_trips.locations import (
     destinations_with_trip_counts,
     expand_destination_slugs,
@@ -166,3 +167,127 @@ class TripsBookedToTestCase(TestCase):
         TripFactory(destination=village, trip_schedule=None)
 
         self.assertEqual(list(trips_booked_to(city)), [own])
+
+
+class TripBookingStateTestCase(TestCase):
+    """Sorting a traveler's bookings into upcoming, past and cancelled."""
+
+    def booking(
+        self, *, start_date=None, end_date=None, target_date=None, status=BookingStatus.PENDING, **fields
+    ):
+        schedule = TripScheduleFactory(
+            status=ScheduleStatus.PUBLISHED, start_date=start_date, end_date=end_date
+        )
+        return TripBookingFactory(schedule=schedule, target_date=target_date, status=status, **fields)
+
+    def test_upcoming_is_today_or_later_soonest_first(self):
+        today = localdate()
+        later = self.booking(start_date=today + timedelta(days=9))
+        soon = self.booking(start_date=today)
+        self.booking(start_date=today - timedelta(days=1))
+
+        self.assertEqual(list(TripBooking.objects.upcoming()), [soon, later])
+
+    def test_past_is_before_today_latest_first(self):
+        today = localdate()
+        older = self.booking(start_date=today - timedelta(days=30))
+        recent = self.booking(start_date=today - timedelta(days=1))
+        self.booking(start_date=today)
+
+        self.assertEqual(list(TripBooking.objects.past()), [recent, older])
+
+    def test_a_trip_under_way_is_upcoming(self):
+        today = localdate()
+        under_way = self.booking(
+            start_date=today - timedelta(days=1), end_date=today + timedelta(days=3)
+        )
+        ends_today = self.booking(start_date=today - timedelta(days=4), end_date=today)
+
+        self.assertEqual(list(TripBooking.objects.upcoming()), [ends_today, under_way])
+        self.assertFalse(TripBooking.objects.past().exists())
+
+    def test_a_trip_that_ended_yesterday_is_past(self):
+        today = localdate()
+        ended = self.booking(
+            start_date=today - timedelta(days=5), end_date=today - timedelta(days=1)
+        )
+
+        self.assertEqual(list(TripBooking.objects.past()), [ended])
+        self.assertEqual(TripBooking.objects.past().get().trip_end_day, today - timedelta(days=1))
+
+    def test_only_the_dates_decide_upcoming_or_past(self):
+        today = localdate()
+        stale = self.booking(start_date=today - timedelta(days=3))
+        completed = self.booking(
+            start_date=today - timedelta(days=2), status=BookingStatus.COMPLETED
+        )
+        confirmed = self.booking(
+            start_date=today + timedelta(days=2), status=BookingStatus.CONFIRMED
+        )
+
+        self.assertEqual(list(TripBooking.objects.past()), [completed, stale])
+        self.assertEqual(list(TripBooking.objects.upcoming()), [confirmed])
+
+    @override_settings(TIME_ZONE="America/Chicago")
+    def test_target_date_uses_the_local_day(self):
+        yesterday = localdate() - timedelta(days=1)
+        chicago = ZoneInfo("America/Chicago")
+        late_yesterday = datetime.combine(yesterday, time(20, 0), tzinfo=chicago)
+        booking = self.booking(start_date=None, target_date=late_yesterday)
+
+        self.assertEqual(late_yesterday.astimezone(UTC).date(), localdate())
+        self.assertEqual(list(TripBooking.objects.past()), [booking])
+        self.assertEqual(TripBooking.objects.past().get().trip_day, yesterday)
+
+    def test_target_date_stands_in_when_the_schedule_has_no_date(self):
+        yesterday = now() - timedelta(days=1)
+        booking = self.booking(start_date=None, target_date=yesterday)
+
+        self.assertEqual(list(TripBooking.objects.past()), [booking])
+        self.assertFalse(TripBooking.objects.upcoming().exists())
+
+    def test_a_booking_with_no_day_is_upcoming_and_listed_last(self):
+        undated = self.booking(start_date=None, target_date=None)
+        dated = self.booking(start_date=localdate() + timedelta(days=3))
+
+        self.assertEqual(list(TripBooking.objects.upcoming()), [dated, undated])
+        self.assertFalse(TripBooking.objects.past().exists())
+
+    def test_cancelled_bookings_are_only_in_cancelled(self):
+        today = localdate()
+        future = self.booking(start_date=today + timedelta(days=5), status=BookingStatus.CANCELLED)
+        gone = self.booking(
+            start_date=today - timedelta(days=5),
+            status=BookingStatus.CANCELLED,
+            cancelled_at=now(),
+        )
+
+        self.assertFalse(TripBooking.objects.upcoming().exists())
+        self.assertFalse(TripBooking.objects.past().exists())
+        self.assertEqual(list(TripBooking.objects.cancelled()), [gone, future])
+
+    def test_trip_day_is_annotated(self):
+        day = localdate() + timedelta(days=4)
+        self.booking(start_date=day)
+
+        self.assertEqual(TripBooking.objects.upcoming().get().trip_day, day)
+
+    def test_state_counts_match_the_lists(self):
+        today = localdate()
+        self.booking(start_date=today)
+        self.booking(start_date=None, target_date=None)
+        self.booking(start_date=today - timedelta(days=2))
+        self.booking(start_date=today + timedelta(days=2), status=BookingStatus.CANCELLED)
+
+        with self.assertNumQueries(1):
+            counts = TripBooking.objects.state_counts()
+
+        self.assertEqual(counts, {"upcoming": 2, "past": 1, "cancelled": 1})
+
+    def test_state_counts_respect_an_earlier_filter(self):
+        mine = self.booking(start_date=localdate())
+        self.booking(start_date=localdate())
+
+        counts = TripBooking.objects.filter(created_by=mine.created_by).state_counts()
+
+        self.assertEqual(counts, {"upcoming": 1, "past": 0, "cancelled": 0})

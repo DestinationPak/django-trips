@@ -53,3 +53,4 @@ Read side:
 - `TripSchedule.objects.bookable()`: upcoming and published.
 - `TripReview.objects.verified()`.
 - `TripBooking.objects.matching_guest()`: the guest lookup, never on `number` alone.
+- `TripBooking.objects.upcoming()` / `past()` / `cancelled()`: a booking's trip day is its schedule's start date, else its `target_date`, and its end day is the schedule's end date, else the trip day (annotated as `trip_day` and `trip_end_day` by `with_trip_day()`). A booking is past once its end day is before today, so a trip under way is still upcoming. Only the dates count: a booking still `PENDING` after its trip ended is past. Upcoming and past leave out cancelled bookings; a booking with no trip day counts as upcoming and sorts last. `state_counts()` counts all three in one query from the same filters. None of these scope to a user; the caller filters to one traveler first.

@@ -1,9 +1,10 @@
 from django.db import models
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Min, Q
+from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
 from django.utils.timezone import now
 
-from django_trips.choices import CustomTripStatus, ScheduleStatus
+from django_trips.choices import BookingStatus, CustomTripStatus, ScheduleStatus
 
 
 class ActiveQuerySet(models.QuerySet):
@@ -85,6 +86,83 @@ class HostManager(TripCountQuerySetMixin, models.QuerySet):
 class TripBookingManager(models.QuerySet):
     def active(self):
         return self.filter(target_date__gt=timezone.now())
+
+    def with_trip_day(self):
+        """
+        Annotate each booking's first and last trip days.
+
+        `trip_day` is the schedule's start date, or the booking's `target_date`
+        when the schedule has none. `trip_end_day` is the schedule's end date,
+        or `trip_day` when the schedule has none. Both are null when no date is
+        set.
+        """
+        return self.annotate(
+            trip_day=Coalesce("schedule__start_date", TruncDate("target_date"))
+        ).annotate(trip_end_day=Coalesce("schedule__end_date", F("trip_day")))
+
+    @staticmethod
+    def _upcoming_filter():
+        """Not cancelled, and the trip has not ended or has no dates."""
+        return ~Q(status=BookingStatus.CANCELLED) & (
+            Q(trip_end_day__gte=timezone.localdate()) | Q(trip_end_day__isnull=True)
+        )
+
+    @staticmethod
+    def _past_filter():
+        """Not cancelled, and the trip's last day is before today."""
+        return ~Q(status=BookingStatus.CANCELLED) & Q(trip_end_day__lt=timezone.localdate())
+
+    @staticmethod
+    def _cancelled_filter():
+        """Cancelled bookings."""
+        return Q(status=BookingStatus.CANCELLED)
+
+    def upcoming(self):
+        """
+        Bookings that are not cancelled and whose trip has not ended.
+
+        Soonest first. A trip under way counts as upcoming, and so does a
+        booking with no trip day, since it has not happened yet.
+        """
+        return (
+            self.with_trip_day()
+            .filter(self._upcoming_filter())
+            .order_by(F("trip_day").asc(nulls_last=True), "pk")
+        )
+
+    def past(self):
+        """
+        Bookings not cancelled whose trip has ended, latest first.
+
+        Only the dates count, so a booking still pending or awaiting payment
+        after its trip ended is listed here too.
+        """
+        return (
+            self.with_trip_day()
+            .filter(self._past_filter())
+            .order_by("-trip_day", "-pk")
+        )
+
+    def cancelled(self):
+        """Cancelled bookings, most recently cancelled first."""
+        return (
+            self.with_trip_day()
+            .filter(self._cancelled_filter())
+            .order_by(F("cancelled_at").desc(nulls_last=True), "-pk")
+        )
+
+    def state_counts(self):
+        """
+        How many bookings are upcoming, past and cancelled, in one query.
+
+        Returns a dict with those three keys, using the same rules as
+        `upcoming()`, `past()` and `cancelled()`.
+        """
+        return self.with_trip_day().aggregate(
+            upcoming=Count("pk", filter=self._upcoming_filter()),
+            past=Count("pk", filter=self._past_filter()),
+            cancelled=Count("pk", filter=self._cancelled_filter()),
+        )
 
     def matching_guest(self, number, *, otp=None, email=None):
         """
